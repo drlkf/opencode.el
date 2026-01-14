@@ -55,10 +55,17 @@
   "An alist mapping of projectIDs to session control buffers for that project.")
 
 (defun opencode--time-ago (opencode-object type)
-  "Return .time.TYPE value from OPENCODE-OBJECT, as seconds ago."
-  (- (float-time)
-     (/ (map-nested-elt opencode-object `(time ,type))
-        1000)))
+  "Return .time.TYPE value from OPENCODE-OBJECT, as seconds ago.
+Returns nil if the timestamp is not present."
+  (when-let ((timestamp (map-nested-elt opencode-object `(time ,type))))
+    (- (float-time) (/ timestamp 1000))))
+
+(defun opencode--format-time-ago (seconds)
+  "Format SECONDS as a human-readable duration string.
+Returns \"-\" if SECONDS is nil."
+  (if seconds
+      (seconds-to-string seconds)
+    "-"))
 
 (defun opencode--annotated-completion (prompt candidates)
   "Simplified and formatted completing read with PROMPT.

@@ -906,15 +906,13 @@ Returns nil if point is before the first prompt."
                                      "-"))
                          ("Last Updated" (opencode--time-ago object 'updated))
                          ("Files changed" (let-alist .summary
-                                            (if (or (null .files)
-                                                    (eq .files :null)
-                                                    (zerop .files))
+                                            (if (opencode--json-falsy .files)
                                                 "none"
                                               (format "%d  +%d-%d"
                                                       .files
-                                                      (if (or (null .additions) (eq .additions :null))
+                                                      (if (opencode--json-falsy .additions)
                                                           0 .additions)
-                                                      (if (or (null .deletions) (eq .deletions :null))
+                                                      (if (opencode--json-falsy .deletions)
                                                           0 .deletions)))))
                          ("Created at" (opencode--time-ago object 'created)))))
            :separator-width 3

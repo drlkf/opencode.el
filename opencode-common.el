@@ -67,6 +67,12 @@ Returns \"-\" if SECONDS is nil."
       (seconds-to-string seconds)
     "-"))
 
+(defun opencode--json-falsy (value)
+  "Return t if VALUE is null, :null, or 0."
+  (cl-case value
+    ((nil :null 0) t)
+    (t nil)))
+
 (defun opencode--annotated-completion (prompt candidates)
   "Simplified and formatted completing read with PROMPT.
 CANDIDATES is a list of lists, where the first element of each list is the

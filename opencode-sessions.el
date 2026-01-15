@@ -528,7 +528,7 @@ Assign the overlay EXTRA-PROP with EXTRA-VALUE."
 
 (defun opencode--show-prompt ()
   "Highlight the prompt after displaying output."
-  (opencode--output (propertize "> " 'invisible t))
+  (opencode--output (propertize "> " 'face 'opencode-request-margin-highlight))
   (opencode--add-margin (car comint-last-prompt)
                         (cdr comint-last-prompt)
                         'opencode-request-margin-highlight)

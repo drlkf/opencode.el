@@ -178,7 +178,7 @@ Use PROMPT and display NO-SESSIONS-MESSAGE if SESSIONS is empty."
                  collect (let-alist session
                            (list .title
                                  session
-                                 (seconds-to-string
+                                 (opencode--format-time-ago
                                   (opencode--time-ago
                                    session 'updated)))))))
     (message no-sessions-message)))
@@ -878,11 +878,11 @@ Returns nil if point is before the first prompt."
            :columns '("Title"
                       (:name "Branch" :min-width 6)
                       (:name "Last Updated" :width 12
-                       :formatter seconds-to-string
+                       :formatter opencode--format-time-ago
                        :primary ascend)
                       (:name "Files changed" :width 13 :align right)
                       (:name "Created at" :width 10
-                       :formatter seconds-to-string))
+                       :formatter opencode--format-time-ago))
            :objects sessions
            :actions '("x" opencode-kill-session
                       "R" opencode-rename-session
@@ -898,7 +898,7 @@ Returns nil if point is before the first prompt."
                                                           '(bold opencode-request-margin-highlight))
                                               .title)
                                     .title))
-                         ("Branch" (if (file-exists-p .directory)
+                         ("Branch" (if (and .directory (file-exists-p .directory))
                                        (let ((default-directory .directory))
                                          (with-memoization
                                              (map-elt cache .directory)
@@ -906,13 +906,18 @@ Returns nil if point is before the first prompt."
                                      "-"))
                          ("Last Updated" (opencode--time-ago object 'updated))
                          ("Files changed" (let-alist .summary
-                                            (if (or (null .files) (zerop .files))
+                                            (if (opencode--json-falsy .files)
                                                 "none"
-                                              (format "%d  +%d-%d" .files .additions .deletions))))
+                                              (format "%d  +%d-%d"
+                                                      .files
+                                                      (if (opencode--json-falsy .additions)
+                                                          0 .additions)
+                                                      (if (opencode--json-falsy .deletions)
+                                                          0 .deletions)))))
                          ("Created at" (opencode--time-ago object 'created)))))
            :separator-width 3
            :keymap opencode-session-control-mode-map)
-        (insert "No sessions in " default-directory))
+        (insert "No sessions in " (or default-directory "unknown directory")))
       (goto-char point))))
 
 (provide 'opencode-sessions)

@@ -206,11 +206,12 @@ Then open an opencode session in it."
       "Project: "
       (cl-loop for project in projects
                for worktree = (alist-get 'worktree project)
+               when worktree
                collect (list (string-remove-prefix
                               (expand-file-name "~/")
                               worktree)
                              worktree
-                             (seconds-to-string
+                             (opencode--format-time-ago
                               (opencode--time-ago
                                project 'updated))))))))
 

@@ -130,7 +130,7 @@ if `opencode-auto-start-server' is non-nil."
   (interactive)
   (let ((project-dir (if-let (proj (project-current))
                          (project-root proj)
-                       default-directory)))
+                       (expand-file-name default-directory))))
     (cond
      ;; Already connected
      (opencode--event-subscriptions
@@ -331,6 +331,7 @@ Without it will use a default title and then automatically generate one."
   (interactive
    (list (when current-prefix-arg
            (read-string "Title: "))))
+  (setq default-directory (expand-file-name default-directory))
   (opencode-process-events default-directory)
   (opencode-api-create-session (if title
                                    `((title . ,title))

@@ -39,7 +39,8 @@ isn't focused, reverting edits, and forking the session.
 
 * Installation
 When this package is a bit more stable I'll package it on MELPA, for now install
-from git. This package depends on [[https://github.com/magit/magit][magit]], [[https://github.com/alphapapa/plz.el][plz]], and [[https://jblevins.org/projects/markdown-mode/][markdown-mode]].
+from git. This package depends on [[https://github.com/magit/magit][magit]], [[https://github.com/alphapapa/plz.el][plz]], [[https://github.com/r0man/plz-media-type][plz-media-type]], [[https://github.com/r0man/plz-event-source/][plz-event-source]],
+and [[https://jblevins.org/projects/markdown-mode/][markdown-mode]].
 ** Manual
 
 Clone this repository and add it to your load path.

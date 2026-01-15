@@ -760,12 +760,14 @@ Assign the overlay EXTRA-PROP with EXTRA-VALUE."
         (pop-to-buffer (gethash .id opencode-session-buffers))
       (let ((buffer (generate-new-buffer (format "*OpenCode: %s*" .title)))
             (agent opencode-session-agent)
-            (model opencode-session-model))
+            (model opencode-session-model)
+            (variant opencode-session-variant))
         (with-current-buffer buffer
           (opencode-session-mode)
           (setq opencode-session-id .id
                 default-directory .directory
-                opencode-session-model (or model opencode-default-model))
+                opencode-session-model (or model opencode-default-model)
+                opencode-session-variant variant)
           (opencode--set-agent (or agent (car opencode-agents)))
           (puthash .id buffer opencode-session-buffers)
           (let ((proc (start-process "dummy" buffer nil)))

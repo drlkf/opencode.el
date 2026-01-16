@@ -104,17 +104,27 @@ annotation to show."
                       (mapcar (lambda (candidate)
                                 (length (car candidate)))
                               candidates)))
+         (candidate-results (make-hash-table :test 'equal))
+         (candidates (cl-loop for (name return-value annotation) in candidates
+                              for candidate = (concat name
+                                                      (propertize annotation 'invisible t))
+                              do (puthash candidate return-value candidate-results)
+                              collect (propertize candidate
+                                                  'opencode-annotation
+                                                  (concat (make-string (+ 5 (- max-length
+                                                                               (length name)))
+                                                                       ?\s)
+                                                          annotation))))
          (completion-extra-properties
           `(:annotation-function
             ,(lambda (candidate)
-               (concat (make-string (+ 5 (- max-length
-                                            (length candidate)))
-                                    ?\s)
-                       (cl-third (assoc-string candidate candidates)))))))
-    (cl-second
-     (assoc-string
-      (completing-read prompt candidates nil t)
-      candidates))))
+               (get-text-property 0 'opencode-annotation candidate)))))
+    (gethash
+     (completing-read
+      prompt
+      candidates
+      nil t)
+     candidate-results)))
 
 (provide 'opencode-common)
 ;;; opencode-common.el ends here

@@ -544,6 +544,10 @@ Assign the overlay EXTRA-PROP with EXTRA-VALUE."
                           (opencode--maybe-insert-block-spacing))
                         (setf (cdr message-parts) (cons type
                                                         (marker-position (process-mark process)))))))
+            ;; don't display margins on extra whitespace
+            (when (and delta
+                       (not (string= .type last-type)))
+              (setf delta (string-trim-left delta)))
             (pcase .type
               ((and "reasoning" (guard delta))
                (maybe-render-last-and-update-message-parts 'reasoning)
@@ -713,13 +717,14 @@ Assign the overlay EXTRA-PROP with EXTRA-VALUE."
 
 (defun opencode--insert-block-with-margin (text face)
   "Insert TEXT with FACE margin highlight."
-  (let ((beginning (opencode--session-process-position)))
-    (opencode--output text)
-    (opencode--add-margin beginning (save-excursion
-                                      (goto-char (opencode--session-process-position))
-                                      (skip-chars-backward "\r\n[:blank:]")
-                                      (point))
-                          face)))
+  (unless (string-empty-p text)
+    (let ((beginning (opencode--session-process-position)))
+      (opencode--output text)
+      (opencode--add-margin beginning (save-excursion
+                                        (goto-char (opencode--session-process-position))
+                                        (skip-chars-backward "\r\n[:blank:]")
+                                        (point))
+                            face))))
 
 (defun opencode--insert-reasoning-block (text)
   "Insert TEXT as reasoning block."
@@ -787,13 +792,17 @@ Assign the overlay EXTRA-PROP with EXTRA-VALUE."
                     ("assistant"
                      (dolist (part (alist-get 'parts message))
                        (let-alist part
-                         (let ((text (opencode--render-markdown (concat .text "\n\n"))))
-                           (pcase .type
-                             ("text" (opencode--output text))
-                             ("tool" (opencode--insert-tool-block .tool .state.input))
-                             ("reasoning"
-                              (opencode--insert-reasoning-block
-                               text))))))
+                         (if (string= .type "tool")
+                             (opencode--insert-tool-block .tool .state.input)
+                           (when .text
+                             (let ((text (opencode--render-markdown (string-trim .text))))
+                               (unless (string-empty-p text)
+                                 (pcase .type
+                                   ("text" (opencode--output text))
+                                   ("reasoning"
+                                    (opencode--insert-reasoning-block
+                                     text)))
+                                 (opencode--output "\n\n")))))))
                      (setq opencode-session-tokens
                            (+ .tokens.input .tokens.output .tokens.reasoning
                               .tokens.cache.read .tokens.cache.write))))))

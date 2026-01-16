@@ -187,6 +187,8 @@ body when it normally would (POST PATCH)."
      (post nodata share-session "/session/%s/share")
      (delete unshare-session "/session/%s/share")
      (post execute-command "/session/%s/command")
+     (post reply-questions "/question/%s/reply")
+     (post nodata reject-questions "/question/%s/reject")
      (commands "/command")
      "/file/status"
      (find-pattern "/find?pattern=%s")

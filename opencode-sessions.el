@@ -100,6 +100,10 @@
 (defvar-local opencode-session-variant nil
   "Currently selected model variant for session.")
 
+(defvar-local opencode-session-pending-questions nil
+  "Pending questions for this session buffer, awaiting user response.
+When non-nil, contains a cons cell (QUESTION-ID . QUESTIONS-VECTOR).")
+
 (defvar opencode-session-buffers
   (make-hash-table :test 'equal)
   "A mapping of session ids to Emacs buffers.")
@@ -150,13 +154,19 @@ Accepts (\"name\" . buffer) to work as a read-buffer predicate."
     (user-error "This requires consult")))
 
 (defun opencode--window-selection-change-hook (_frame)
-  "Hook to remove session from the alerted sessions list when it's visited."
+  "Hook to remove session from the alerted sessions list when it's visited.
+Also prompts for pending questions if any."
   (when opencode-session-id
     (setf opencode-alerted-sessions
           (cl-delete-if (lambda (session)
                           (string= opencode-session-id
                                    (alist-get 'id session)))
-                        opencode-alerted-sessions))))
+                        opencode-alerted-sessions))
+    ;; Handle pending questions when buffer becomes active
+    (when opencode-session-pending-questions
+      (let ((pending opencode-session-pending-questions))
+        (setq opencode-session-pending-questions nil)
+        (opencode--prompt-questions (car pending) (cdr pending))))))
 
 (add-hook 'window-selection-change-functions 'opencode--window-selection-change-hook)
 
@@ -561,7 +571,9 @@ Assign the overlay EXTRA-PROP with EXTRA-VALUE."
               ("tool" (maybe-render-last-and-update-message-parts 'tool)
                (when (and (string= .state.status "running")
                           ;; only when it first starts running
-                          (null .state.metadata))
+                          (null .state.metadata)
+                          ;; skip the question tool, handled by question.asked event
+                          (not (string= .tool "question")))
                  (opencode--insert-tool-block .tool .state.input))
                (when (and (string= .state.status "completed")
                           opencode-show-tool-output
@@ -570,8 +582,7 @@ Assign the overlay EXTRA-PROP with EXTRA-VALUE."
               ("step-finish"
                (when (string= "stop" .reason)
                  (opencode--render-last-block last-type last-start)
-                 (opencode--maybe-insert-block-spacing)
-                 (opencode--show-prompt))))))))))
+                 (opencode--maybe-insert-block-spacing))))))))))
 
 (defface opencode-request-margin-highlight
   '((t :inherit outline-1 :height reset))

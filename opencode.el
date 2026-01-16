@@ -247,6 +247,51 @@ Or nil to disable logging.")
      :replaces-id 5647
      :app-icon 'none)))
 
+(defun opencode--buffer-active-p (buffer)
+  "Return non-nil if BUFFER is visible in the selected window of a focused frame."
+  (and buffer
+       (eq buffer (window-buffer (selected-window)))
+       (frame-focus-state (window-frame (selected-window)))))
+
+(defun opencode--output-questions (buffer questions)
+  "Output QUESTIONS to BUFFER with ❓ prefix for each question."
+  (when (and (buffer-live-p buffer)
+             (get-buffer-process buffer))
+    (with-current-buffer buffer
+      (opencode--maybe-insert-block-spacing)
+      (cl-loop for q across questions
+               for question-text = (alist-get 'question q)
+               do (opencode--output (concat "❓ " question-text "\n"))
+               finally (opencode--output "\n")))))
+
+(defun opencode--prompt-questions (question-id questions)
+  "Prompt user to answer QUESTIONS, then reply or reject to QUESTION-ID.
+QUESTIONS is a vector of question objects with `question', `header', and
+`options' fields.  Each option has `label' and `description' fields.
+If user selects \"Other\", prompts for custom input using the description.
+If user quits, rejects the question via API."
+  (condition-case nil
+      (let ((answers
+             (cl-loop for q across questions
+                      for question = (alist-get 'question q)
+                      for options = (alist-get 'options q)
+                      for candidates = (cl-loop for opt across options
+                                                for label = (alist-get 'label opt)
+                                                for desc = (alist-get 'description opt)
+                                                collect (list label label desc))
+                      for answer = (opencode--annotated-completion
+                                    (concat question " ")
+                                    candidates)
+                      collect (list answer))))
+        (opencode-api-reply-questions (question-id)
+            `((answers . ,(vconcat answers)))
+            _result
+          nil))
+    (quit
+     (opencode-api-reject-questions (question-id)
+         _result
+       nil))))
+
 (defun opencode--permission-request (permission-id session-id type title)
   "Respond to permission request from opencode.
 Args are PERMISSION-ID, SESSION-ID, and the TYPE and TITLE of the request."
@@ -273,10 +318,10 @@ Args are PERMISSION-ID, SESSION-ID, and the TYPE and TITLE of the request."
         (session.idle (opencode-api-session (.sessionID)
                           session
                         (let ((buffer (gethash .sessionID opencode-session-buffers)))
+                          (with-current-buffer buffer
+                            (opencode--show-prompt))
                           (unless (or
-                                   ;; don't show alert if the buffer and frame is active
-                                   (and (eq buffer (window-buffer (selected-window)))
-                                        (frame-focus-state (window-frame (selected-window))))
+                                   (opencode--buffer-active-p buffer)
                                    ;; don't show alert for subagent sessions
                                    (alist-get 'parentID session))
                             (opencode--toast-show `((title . "OpenCode Finished")
@@ -299,6 +344,27 @@ Args are PERMISSION-ID, SESSION-ID, and the TYPE and TITLE of the request."
         (message.part.updated (opencode-session--update-part .part .delta))
         (message.updated (opencode-session--message-updated .info))
         (permission.updated (opencode--permission-request .id .sessionID .type .title))
+        (question.asked
+         (let ((buffer (gethash .sessionID opencode-session-buffers)))
+           ;; Output questions to the buffer
+           (opencode--output-questions buffer .questions)
+           (if (opencode--buffer-active-p buffer)
+               ;; Buffer is active, prompt immediately
+               (opencode--prompt-questions .id .questions)
+             ;; Buffer not active, show notification and store pending
+             (opencode--toast-show `((title . "OpenCode Questions")
+                                     (message . ,(alist-get
+                                                  'question
+                                                  (aref .questions 0)))
+                                     (variant . "info")
+                                     (timeout . 1000)))
+             (opencode-api-session (.sessionID)
+                 session
+               (push session opencode-alerted-sessions))
+             (when buffer
+               (with-current-buffer buffer
+                 (setq opencode-session-pending-questions
+                       (cons .id .questions)))))))
         (otherwise (opencode--log-event "WARNING" "unhandled message type"))))))
 
 (defun opencode-disconnect (&optional event)

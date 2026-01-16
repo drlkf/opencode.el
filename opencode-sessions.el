@@ -559,7 +559,9 @@ Assign the overlay EXTRA-PROP with EXTRA-VALUE."
                (maybe-render-last-and-update-message-parts 'text)
                (opencode--output delta))
               ("tool" (maybe-render-last-and-update-message-parts 'tool)
-               (when (string= .state.status "running")
+               (when (and (string= .state.status "running")
+                          ;; only when it first starts running
+                          (null .state.metadata.output))
                  (opencode--insert-tool-block .tool .state.input)))
               ("step-finish"
                (when (string= "stop" .reason)

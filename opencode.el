@@ -116,14 +116,26 @@ When nil, `opencode' will only connect to an already running server."
           (start-process-shell-command
            "opencode" "*opencode-serve*"
            (opencode--serve-command))))
+
   (set-process-filter
    opencode--process
    (lambda (process output)
+     (with-current-buffer "*opencode-serve*"
+       (goto-char (process-mark process))
+       (insert output))
      (when (string-prefix-p "opencode server listening on" output)
        ;; Remove filter to avoid repeated callbacks
        (set-process-filter process nil)
        (opencode-connect opencode-host opencode-port)
-       (opencode-open-project project-dir)))))
+       (opencode-open-project project-dir))))
+
+  (set-process-sentinel
+   opencode--process
+   (lambda (process event)
+     (when (memq (process-status process) '(exit signal))
+       (unless (zerop (process-exit-status process))
+         (pop-to-buffer (process-buffer process))
+         (error "OpenCode failed, %s" (string-trim-right event "\n")))))))
 
 ;;;###autoload
 (defun opencode ()
@@ -392,6 +404,7 @@ Args are PERMISSION-ID, SESSION-ID, and the TYPE and TITLE of the request."
            when (process-live-p process)
            do (kill-process process))
   (when (process-live-p opencode--process)
+    (set-process-sentinel opencode--process nil)
     (kill-process opencode--process))
   (setq opencode--event-subscriptions nil))
 

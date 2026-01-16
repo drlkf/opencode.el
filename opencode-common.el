@@ -64,6 +64,11 @@
   :type 'string
   :group 'opencode)
 
+(defcustom opencode-show-tool-output nil
+  "Show output of tool calls."
+  :type 'boolean
+  :group 'opencode)
+
 (defun opencode--time-ago (opencode-object type)
   "Return .time.TYPE value from OPENCODE-OBJECT, as seconds ago.
 Returns nil if the timestamp is not present."

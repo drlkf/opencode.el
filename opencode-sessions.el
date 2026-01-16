@@ -562,7 +562,11 @@ Assign the overlay EXTRA-PROP with EXTRA-VALUE."
                (when (and (string= .state.status "running")
                           ;; only when it first starts running
                           (null .state.metadata.output))
-                 (opencode--insert-tool-block .tool .state.input)))
+                 (opencode--insert-tool-block .tool .state.input))
+               (when (and (string= .state.status "completed")
+                          opencode-show-tool-output
+                          .state.output)
+                 (opencode--output .state.output)))
               ("step-finish"
                (when (string= "stop" .reason)
                  (opencode--render-last-block last-type last-start)

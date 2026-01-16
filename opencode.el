@@ -264,6 +264,23 @@ Or nil to disable logging.")
                do (opencode--output (concat "❓ " question-text "\n"))
                finally (opencode--output "\n")))))
 
+(defun opencode--window-selection-change-hook (_frame)
+  "Hook to remove session from the alerted sessions list when it's visited.
+Also prompts for pending questions if any."
+  (when opencode-session-id
+    (setf opencode-alerted-sessions
+          (cl-delete-if (lambda (session)
+                          (string= opencode-session-id
+                                   (alist-get 'id session)))
+                        opencode-alerted-sessions))
+    ;; Handle pending questions when buffer becomes active
+    (when opencode-session-pending-questions
+      (let ((pending opencode-session-pending-questions))
+        (setq opencode-session-pending-questions nil)
+        (opencode--prompt-questions (car pending) (cdr pending))))))
+
+(add-hook 'window-selection-change-functions 'opencode--window-selection-change-hook)
+
 (defun opencode--prompt-questions (question-id questions)
   "Prompt user to answer QUESTIONS, then reply or reject to QUESTION-ID.
 QUESTIONS is a vector of question objects with `question', `header', and

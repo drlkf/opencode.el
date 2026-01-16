@@ -74,12 +74,12 @@
     "/" 'opencode-insert-slash-command))
 
 (with-eval-after-load 'evil
-  (declare-function evil-define-key "evil-core")
-  (evil-define-key 'normal opencode-session-control-mode-map
+  (declare-function evil-define-key* "evil-core")
+  (evil-define-key* 'normal opencode-session-control-mode-map
     "r" 'opencode-sessions-redisplay
     "n" 'opencode-new-session
     "gv" 'opencode-session-control-toggle-verbose)
-  (evil-define-key 'insert opencode-session-mode-map
+  (evil-define-key* 'insert opencode-session-mode-map
     "/" 'opencode-insert-slash-command))
 
 (defvar-local opencode-session-id nil
@@ -152,23 +152,6 @@ Accepts (\"name\" . buffer) to work as a read-buffer predicate."
         (declare-function consult-line-multi "consult")
         (consult-line-multi '(:predicate opencode--session-buffer-p)))
     (user-error "This requires consult")))
-
-(defun opencode--window-selection-change-hook (_frame)
-  "Hook to remove session from the alerted sessions list when it's visited.
-Also prompts for pending questions if any."
-  (when opencode-session-id
-    (setf opencode-alerted-sessions
-          (cl-delete-if (lambda (session)
-                          (string= opencode-session-id
-                                   (alist-get 'id session)))
-                        opencode-alerted-sessions))
-    ;; Handle pending questions when buffer becomes active
-    (when opencode-session-pending-questions
-      (let ((pending opencode-session-pending-questions))
-        (setq opencode-session-pending-questions nil)
-        (opencode--prompt-questions (car pending) (cdr pending))))))
-
-(add-hook 'window-selection-change-functions 'opencode--window-selection-change-hook)
 
 (defun opencode-visit-last-idle ()
   "Open the most recent session to notify as idle."

@@ -79,18 +79,9 @@ This codebase uses macro-generated async API calls:
 
 ### File Responsibilities
 
-| File | Role |
-|------|------|
-| `opencode.el` | Entry point, SSE event handling, notifications |
-| `opencode-api.el` | HTTP API macro generator, endpoint definitions |
-| `opencode-sessions.el` | Session UI, comint integration, markdown |
-
-### Event Handling
-
-Events from `/event` SSE stream are dispatched in `opencode--handle-message`:
-
-```elisp
-(cl-case (intern (alist-get 'type data))
-  (new.event.type (handle-new-event ...))
-  ...)
-```
+| File                   | Role                                               |
+|------------------------|----------------------------------------------------|
+| `opencode.el`          | Entry point, SSE event handling, notifications     |
+| `opencode-api.el`      | HTTP API macro generator, endpoint definitions     |
+| `opencode-sessions.el` | Session UI, comint integration, markdown           |
+| `opencode-common.el`   | Utility functions and variable needed project-wide |

@@ -64,7 +64,7 @@ add to =packages.el= and run =doom sync=
 * Connecting
 ** Automatic
 =M-x opencode= will try to connect to an opencode server at
-=opencode-host:opencode-port= and will start a headless opencode server if one
+=opencode-host:opencode-port= or will start a headless opencode server if one
 isn't already running. Then it opens a [[#6679896c-5b9d-4e87-9e03-6ed060dec278][Session Management]] buffer for the current
 project.
 ** Manual

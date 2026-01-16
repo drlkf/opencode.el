@@ -219,13 +219,6 @@ Then open an opencode session in it."
   "Maximum number of lines to log in the opencode event log buffer.
 Or nil to disable logging.")
 
-(defun opencode--truncate-at-max-lines (max-lines)
-  "Delete the first half of the buffer if we've reached MAX-LINES."
-  (when (> (line-number-at-pos) max-lines)
-    (goto-char (point-max))
-    (forward-line (- (/ max-lines 2)))
-    (delete-region (point-min) (point))))
-
 (defun opencode--log-event (type event)
   "Log EVENT of TYPE to the opencode log buffer."
   (when opencode-event-log-max-lines

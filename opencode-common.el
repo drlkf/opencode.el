@@ -83,6 +83,13 @@ Returns \"-\" if SECONDS is nil."
     ((nil :null 0) t)
     (t nil)))
 
+(defun opencode--truncate-at-max-lines (max-lines)
+  "Delete the first half of the buffer if we've reached MAX-LINES."
+  (when (> (line-number-at-pos) max-lines)
+    (goto-char (point-max))
+    (forward-line (- (/ max-lines 2)))
+    (delete-region (point-min) (point))))
+
 (defun opencode--annotated-completion (prompt candidates)
   "Simplified and formatted completing read with PROMPT.
 CANDIDATES is a list of lists, where the first element of each list is the

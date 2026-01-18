@@ -412,10 +412,13 @@ Args are PERMISSION-ID, SESSION-ID, and the TYPE and TITLE of the request."
   "Fetch available agents from server and filter out subagents or hidden agents."
   (opencode-api-agents agents
     (setq opencode-agents
-          (seq-filter (lambda (agent)
-                        (and (string= "primary" (alist-get 'mode agent))
-                             (not (alist-get 'hidden agent))))
-                      agents))))
+          (cl-loop for agent in agents
+                   when (and (string= "primary" (alist-get 'mode agent))
+                             (not (alist-get 'hidden agent)))
+                   do (unless (alist-get 'model agent)
+                        (setf (alist-get 'model agent)
+                              opencode-default-model))
+                   and collect agent))))
 
 (defun opencode-new-session (&optional title)
   "Create a new session. With a prefix argument it will ask for TITLE.

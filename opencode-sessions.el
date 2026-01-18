@@ -94,8 +94,9 @@
 (defvar-local opencode-session-agent nil
   "Currently active agent for this buffer's session.")
 
-(defvar-local opencode-session-model nil
-  "Currently selected model for session when agent doesn't have default model.")
+(defvar-local opencode-session-agents nil
+  "List of agents for the current session.
+Buffer local so we can configure models per agent per session.")
 
 (defvar-local opencode-session-variant nil
   "Currently selected model variant for session.")
@@ -112,22 +113,15 @@ When non-nil, contains a cons cell (QUESTION-ID . QUESTIONS-VECTOR).")
   nil
   "An alist mapping all currently updating assistant message ids, to start pos.")
 
-(defun opencode--set-agent (agent)
-  "Set this buffers agent to AGENT."
-  (setf opencode-session-agent (copy-alist agent))
-  (unless (alist-get 'model opencode-session-agent)
-    (setf (alist-get 'model opencode-session-agent)
-          opencode-session-model)))
-
 (defun opencode-cycle-session-agent ()
-  "Switch to the next agent in `opencode-agents'."
+  "Switch to the next agent in `opencode-session-agents'."
   (interactive)
   (let* ((pos (cl-position-if (lambda (agent)
                                 (string= (alist-get 'name agent)
                                          (alist-get 'name opencode-session-agent)))
-                              opencode-agents))
-         (next (nth (1+ pos) opencode-agents)))
-    (opencode--set-agent (or next (car opencode-agents))))
+                              opencode-session-agents))
+         (next (nth (1+ pos) opencode-session-agents)))
+    (setf opencode-session-agent (or next (car opencode-session-agents))))
   (force-mode-line-update))
 
 (defun opencode--session-buffer-p (buf)
@@ -197,16 +191,14 @@ Each element is (display-name . (provider-id provider-name model-id))."
     (nreverse result)))
 
 (defun opencode-select-model ()
-  "Select a model for the current session using completion.
-Creates a new copy of the agent to avoid mutating `opencode-agents'."
+  "Select a model for the current session and agent using completion."
   (interactive)
   (unless opencode-session-agent
     (user-error "not in a session"))
   (when-let ((model (opencode--annotated-completion
                      "Model: "
                      (opencode--collect-all-models))))
-    (setf (alist-get 'model opencode-session-agent) model
-          opencode-session-model model)
+    (setf (alist-get 'model opencode-session-agent) model)
     (unless (alist-get opencode-session-variant
                        (alist-get 'variants (opencode--current-model)))
       (setf opencode-session-variant nil))))
@@ -450,16 +442,16 @@ Assign the overlay EXTRA-PROP with EXTRA-VALUE."
               (model . ,(concat .model.providerID "/" .model.modelID))
               (command . ,(match-string 1 string))
               (arguments . ,(match-string 2 string)))
-            _response))
-    (opencode-api-send-message (opencode-session-id)
-        `((agent . ,(alist-get 'name opencode-session-agent))
-          ,(assoc 'model opencode-session-agent)
-          (variant . ,(or opencode-session-variant ""))
-          (parts . ,(nreverse
-                     (cons `((type . text) (text . ,string))
-                           opencode--extra-parts))))
-        _result)
-    (setf opencode--extra-parts nil)))
+            _response)
+      (opencode-api-send-message (opencode-session-id)
+          `((agent . ,.name)
+            ,(assoc 'model opencode-session-agent)
+            (variant . ,(or opencode-session-variant ""))
+            (parts . ,(nreverse
+                       (cons `((type . text) (text . ,string))
+                             opencode--extra-parts))))
+          _result)
+      (setf opencode--extra-parts nil))))
 
 (defun opencode-session--message-updated (info)
   "Handle message.updated event with INFO."
@@ -765,15 +757,15 @@ Assign the overlay EXTRA-PROP with EXTRA-VALUE."
         (pop-to-buffer (gethash .id opencode-session-buffers))
       (let ((buffer (generate-new-buffer (format "*OpenCode: %s*" .title)))
             (agent opencode-session-agent)
-            (model opencode-session-model)
+            (agents opencode-session-agents)
             (variant opencode-session-variant))
         (with-current-buffer buffer
           (opencode-session-mode)
           (setq opencode-session-id .id
                 default-directory .directory
-                opencode-session-model (or model opencode-default-model)
-                opencode-session-variant variant)
-          (opencode--set-agent (or agent (car opencode-agents)))
+                opencode-session-variant variant
+                opencode-session-agents (or agents (copy-tree opencode-agents))
+                opencode-session-agent (or agent (car opencode-session-agents)))
           (puthash .id buffer opencode-session-buffers)
           (let ((proc (start-process "dummy" buffer nil)))
             (set-process-query-on-exit-flag proc nil)

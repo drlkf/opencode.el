@@ -610,14 +610,17 @@ Assign the overlay EXTRA-PROP with EXTRA-VALUE."
 (defun opencode--replay-user-request (message)
   "Replay a user request MESSAGE."
   (opencode--show-prompt)
-  (dolist (part (alist-get 'parts message))
-    (let-alist part
-      (unless .synthetic
-        (pcase .type
-          ("text" (insert .text))))))
-  (insert "\n")
-  (let ((comint-input-sender #'opencode--highlight-input))
-    (comint-send-input)))
+  (let-alist message
+    (dolist (part .parts)
+      (let-alist part
+        (unless .synthetic
+          (pcase .type
+            ("text" (insert .text))))))
+    (insert "\n")
+    (let ((comint-input-sender #'opencode--highlight-input))
+      (comint-send-input))
+    (when-let (model .info.model)
+      (setf (alist-get 'model opencode-session-agent) model))))
 
 (defun opencode--format-edit-diff (old-string new-string)
   "Generate diff output comparing OLD-STRING to NEW-STRING."

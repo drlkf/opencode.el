@@ -619,8 +619,12 @@ Assign the overlay EXTRA-PROP with EXTRA-VALUE."
     (insert "\n")
     (let ((comint-input-sender #'opencode--highlight-input))
       (comint-send-input))
-    (when-let (model .info.model)
-      (setf (alist-get 'model opencode-session-agent) model))))
+    (let ((agent (seq-find (lambda (agent)
+                             (string= (alist-get 'name agent)
+                                      .info.agent))
+                           opencode-session-agents)))
+      (setf opencode-session-agent agent)
+      (setf (alist-get 'model agent) .info.model))))
 
 (defun opencode--format-edit-diff (old-string new-string)
   "Generate diff output comparing OLD-STRING to NEW-STRING."

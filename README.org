@@ -54,6 +54,11 @@ Clone this repository and add it to your load path.
 (use-package opencode
   :straight (opencode :type git :host codeberg :repo "sczi/opencode.el"))
 #+end_src
+** Emacs use-package (as of Emacs 30+)
+#+begin_src emacs-lisp
+(use-package opencode 
+  :vc (:url "https://codeberg.org/sczi/opencode.el.git" :rev :newest))
+#+end_src
 ** In Doom Emacs
 add to =packages.el= and run =doom sync=
 #+begin_src emacs-lisp

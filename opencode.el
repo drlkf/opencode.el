@@ -98,8 +98,8 @@ When nil, `opencode' will only connect to an already running server."
       (format "%s serve --port %d --hostname %s"
               opencode-command opencode-port opencode-host)))
 
-(defun opencode--start-server (project-dir)
-  "Start an opencode server and open PROJECT-DIR when ready."
+(defun opencode--start-server (on-connect)
+  "Start an opencode server and run ON-CONNECT when ready."
   (setf opencode-server-password
         (or opencode-server-password
             (let ((chars "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"))
@@ -127,7 +127,7 @@ When nil, `opencode' will only connect to an already running server."
        ;; Remove filter to avoid repeated callbacks
        (set-process-filter process nil)
        (opencode-connect opencode-host opencode-port)
-       (opencode-open-project project-dir))))
+       (funcall on-connect))))
 
   (set-process-sentinel
    opencode--process
@@ -136,6 +136,30 @@ When nil, `opencode' will only connect to an already running server."
        (unless (zerop (process-exit-status process))
          (pop-to-buffer (process-buffer process))
          (error "OpenCode failed, %s" (string-trim-right event "\n")))))))
+
+(defun opencode-autoconnect (on-connect)
+  "Connect to an existing server if one is running, otherwise start a new one.
+Only starts new one if `opencode-auto-start-server' is non-nil.
+Run ON-CONNECT after connected."
+  (cond
+   ;; Already connected
+   (opencode--event-subscriptions
+    (funcall on-connect))
+   ;; We started a server process that's still alive
+   ((process-live-p opencode--process)
+    (funcall on-connect))
+   ;; Server already running externally
+   ((opencode--server-running-p)
+    (opencode-connect opencode-host opencode-port)
+    (funcall on-connect))
+   ;; Need to start a new server
+   (opencode-auto-start-server
+    (opencode--start-server on-connect))
+   ;; Auto-start disabled, no server running
+   (t
+    (user-error "No opencode server running at %s:%d (auto-start disabled)"
+                opencode-host opencode-port))))
+
 
 ;;;###autoload
 (defun opencode ()
@@ -146,24 +170,7 @@ if `opencode-auto-start-server' is non-nil."
   (let ((project-dir (if-let (proj (project-current))
                          (project-root proj)
                        (expand-file-name default-directory))))
-    (cond
-     ;; Already connected
-     (opencode--event-subscriptions
-      (opencode-open-project project-dir))
-     ;; We started a server process that's still alive
-     ((process-live-p opencode--process)
-      (opencode-open-project project-dir))
-     ;; Server already running externally
-     ((opencode--server-running-p)
-      (opencode-connect opencode-host opencode-port)
-      (opencode-open-project project-dir))
-     ;; Need to start a new server
-     (opencode-auto-start-server
-      (opencode--start-server project-dir))
-     ;; Auto-start disabled, no server running
-     (t
-      (user-error "No opencode server running at %s:%d (auto-start disabled)"
-                  opencode-host opencode-port)))))
+    (opencode-autoconnect (lambda () (opencode-open-project project-dir)))))
 
 (defun opencode-connect (host port)
   "Connect to opencode server, prompting for HOST and PORT."
@@ -215,20 +222,22 @@ Then open an opencode session in it."
 (defun opencode-select-project ()
   "Completing read to prompt which project to select."
   (interactive)
-  (opencode-api-projects projects
-    (opencode-open-project
-     (opencode--annotated-completion
-      "Project: "
-      (cl-loop for project in projects
-               for worktree = (alist-get 'worktree project)
-               when worktree
-               collect (list (string-remove-prefix
-                              (expand-file-name "~/")
-                              worktree)
-                             worktree
-                             (opencode--format-time-ago
-                              (opencode--time-ago
-                               project 'updated))))))))
+  (opencode-autoconnect
+   (lambda ()
+     (opencode-api-projects projects
+       (opencode-open-project
+        (opencode--annotated-completion
+         "Project: "
+         (cl-loop for project in projects
+                  for worktree = (alist-get 'worktree project)
+                  when worktree
+                  collect (list (string-remove-prefix
+                                 (expand-file-name "~/")
+                                 worktree)
+                                worktree
+                                (opencode--format-time-ago
+                                 (opencode--time-ago
+                                  project 'updated))))))))))
 
 (defvar opencode-event-log-max-lines nil
   "Maximum number of lines to log in the opencode event log buffer.
@@ -427,12 +436,14 @@ Without it will use a default title and then automatically generate one."
    (list (when current-prefix-arg
            (read-string "Title: "))))
   (setq default-directory (expand-file-name default-directory))
-  (opencode-process-events default-directory)
-  (opencode-api-create-session (if title
-                                   `((title . ,title))
-                                 (make-hash-table))
-      session
-    (opencode-open-session session)))
+  (opencode-autoconnect
+   (lambda ()
+     (opencode-process-events default-directory)
+     (opencode-api-create-session (if title
+                                      `((title . ,title))
+                                    (make-hash-table))
+         session
+       (opencode-open-session session)))))
 
 (defun opencode-toggle-mcp ()
   "Completing read to select an MCP to toggle."

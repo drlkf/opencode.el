@@ -198,7 +198,8 @@ Each element is (display-name . (provider-id provider-name model-id))."
   (when-let ((model (opencode--annotated-completion
                      "Model: "
                      (opencode--collect-all-models))))
-    (setf (alist-get 'model opencode-session-agent) model)
+    (setf (alist-get 'model opencode-session-agent) model
+          opencode-last-model model)
     (unless (alist-get opencode-session-variant
                        (alist-get 'variants (opencode--current-model)))
       (setf opencode-session-variant nil))))
@@ -771,7 +772,13 @@ Assign the overlay EXTRA-PROP with EXTRA-VALUE."
           (setq opencode-session-id .id
                 default-directory .directory
                 opencode-session-variant variant
-                opencode-session-agents (or agents (copy-tree opencode-agents))
+                opencode-session-agents (mapcar (lambda (agent)
+                                                  (unless (alist-get 'model agent)
+                                                    (setf (alist-get 'model agent)
+                                                          opencode-last-model))
+                                                  agent)
+                                                (or agents
+                                                    (copy-tree opencode-agents)))
                 opencode-session-agent (or agent (car opencode-session-agents)))
           (puthash .id buffer opencode-session-buffers)
           (let ((proc (start-process "dummy" buffer nil)))

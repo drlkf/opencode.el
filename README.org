@@ -202,11 +202,6 @@ and non AI-infected development environment, review and then pull the changes
 from the shared folder.
 
 * Configuration
-- Set =opencode-default-model= for the default model to use when the selected agent doesn't have a default model. The default setting is:
-#+begin_src emacs-lisp
-((providerID . "opencode")
- (modelID . "big-pickle"))
-#+end_src
 - =opencode-command= and =opencode-serve-command= can be used to configure how to
   run a headless opencode server
 - =opencode-host= and =opencode-port= are the default host and port to use with =M-x opencode-connect=

@@ -38,6 +38,11 @@
 (require 'plz-event-source)
 (require 'project)
 
+;; pending fix upstream at https://github.com/r0man/plz-event-source/pull/15
+;; see also: https://codeberg.org/sczi/opencode.el/issues/12
+(setq plz-event-source-parser--line-regexp
+      (rx (*? not-newline) (or "\r\n" "\n" "\r")))
+
 (defgroup opencode nil
   "Emacs interface to opencode."
   :group 'applications)

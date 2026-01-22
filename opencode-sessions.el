@@ -155,7 +155,7 @@ Accepts (\"name\" . buffer) to work as a read-buffer predicate."
       (opencode-open-session (pop opencode-alerted-sessions))
     (message "No idle sessions")))
 
-(defun opencode-list-sessions ()
+(defun opencode-select-session ()
   "Select and open a session from the current project using completion."
   (interactive)
   (opencode-api-sessions sessions

@@ -480,7 +480,7 @@ If point is before the first prompt, creates a new session instead."
         (opencode-api-fork-session (opencode-session-id)
             `((messageID . ,message-id))
             session
-          (opencode-open-session session))
+          (opencode-open-session session :pop-to-buffer nil))
       ;; if before the first prompt just open a new session
       (opencode-new-session))))
 

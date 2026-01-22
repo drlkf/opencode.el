@@ -163,11 +163,13 @@ Accepts (\"name\" . buffer) to work as a read-buffer predicate."
                                (seq-remove (lambda (session)
                                              (alist-get 'parentID session))
                                            sessions)
-                               (format "No sessions in %s" default-directory))))
+                               (format "No sessions in %s" default-directory)
+                               :pop-to-buffer nil)))
 
-(defun opencode--select-sessions (prompt sessions no-sessions-message)
+(cl-defun opencode--select-sessions (prompt sessions no-sessions-message &key (pop-to-buffer t))
   "Select a session from SESSIONS to open.
-Use PROMPT and display NO-SESSIONS-MESSAGE if SESSIONS is empty."
+Use PROMPT and display NO-SESSIONS-MESSAGE if SESSIONS is empty.
+POP-TO-BUFFER controls whether to pop to or switch to the session buffer."
   (if sessions
       (opencode-open-session
        (opencode--annotated-completion
@@ -178,7 +180,8 @@ Use PROMPT and display NO-SESSIONS-MESSAGE if SESSIONS is empty."
                                  session
                                  (opencode--format-time-ago
                                   (opencode--time-ago
-                                   session 'updated)))))))
+                                   session 'updated))))))
+       :pop-to-buffer pop-to-buffer)
     (message no-sessions-message)))
 
 (defun opencode-select-idle ()
@@ -769,8 +772,9 @@ Assign the overlay EXTRA-PROP with EXTRA-VALUE."
     (when (string= tool "edit")
       (opencode--refine-diff-hunks start))))
 
-(defun opencode-open-session (session)
-  "Open comint based shell for SESSION."
+(cl-defun opencode-open-session (session &key (pop-to-buffer t))
+  "Open comint based shell for SESSION.
+POP-TO-BUFFER controls whether to pop to or switch to the session buffer."
   (let-alist session
     (if (buffer-live-p (gethash .id opencode-session-buffers))
         (pop-to-buffer (gethash .id opencode-session-buffers))
@@ -824,7 +828,9 @@ Assign the overlay EXTRA-PROP with EXTRA-VALUE."
                            (+ .tokens.input .tokens.output .tokens.reasoning
                               .tokens.cache.read .tokens.cache.write))))))
               (opencode--show-prompt)))
-          (pop-to-buffer buffer))))))
+          (if pop-to-buffer
+              (pop-to-buffer buffer)
+            (switch-to-buffer buffer)))))))
 
 (defun opencode--current-message-number ()
   "Return the 0-indexed message number at point.

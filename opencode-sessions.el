@@ -59,7 +59,7 @@
     "TAB" 'opencode-cycle-session-agent
     "C-c r" 'opencode-rename-session
     "C-c n" 'opencode-new-session
-    "C-c l" 'opencode-list-sessions
+    "C-c l" 'opencode-select-session
     "C-c c" 'opencode-select-child-session
     "C-c p" 'opencode-open-parent
     "C-c f" 'opencode-add-file
@@ -133,7 +133,7 @@ Accepts (\"name\" . buffer) to work as a read-buffer predicate."
                          (list (cdr buf)))
     opencode-session-id))
 
-(defun opencode-select-session ()
+(defun opencode-select-open-session ()
   "Select among open session buffers."
   (interactive)
   (switch-to-buffer
@@ -159,21 +159,11 @@ Accepts (\"name\" . buffer) to work as a read-buffer predicate."
   "Select and open a session from the current project using completion."
   (interactive)
   (opencode-api-sessions sessions
-    (let ((filtered-sessions (seq-remove (lambda (session)
-                                           (alist-get 'parentID session))
-                                         sessions)))
-      (if filtered-sessions
-          (opencode-open-session
-           (opencode--annotated-completion
-            "Session: "
-            (cl-loop for session in filtered-sessions
-                     collect (let-alist session
-                               (list .title
-                                     session
-                                     (opencode--format-time-ago
-                                      (opencode--time-ago
-                                       session 'updated)))))))
-        (message "No sessions in %s" default-directory)))))
+    (opencode--select-sessions "Session: "
+                               (seq-remove (lambda (session)
+                                             (alist-get 'parentID session))
+                                           sessions)
+                               (format "No sessions in %s" default-directory))))
 
 (defun opencode--select-sessions (prompt sessions no-sessions-message)
   "Select a session from SESSIONS to open.

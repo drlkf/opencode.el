@@ -134,6 +134,7 @@ These colors can be configured through the =opencode-*-margin-highlight= faces.
 |  =C-c r=  | rename this session                                                                                                        |
 |  =C-c n=  | start a new session in the same project                                                                                    |
 |  =C-c c=  | fuzzy select a child session to open - children are all subagent  sessions spawned by this session                         |
+|  =C-c l=  | list and select from all sessions in the same project                                                      |
 |  =C-c p=  | open parent session - when in a subagent session, open the session that spawned it                                         |
 |  =C-c f=  | select a file to add to context                                                                                            |
 |  =C-c b=  | select a buffer to add to context                                                                                          |
@@ -153,7 +154,7 @@ If a session buffer and frame is not active, emacs will show a notification when
 * Commands
 #+begin_src emacs-lisp :results table :colnames '("Command" "Description") :exports results
 (cl-loop for command in '(opencode opencode-connect opencode-disconnect
-                          opencode-select-project opencode-select-session
+                          opencode-select-project opencode-select-open-session
                           opencode-new-worktree opencode-new-session
                           opencode-select-idle opencode-visit-last-idle)
          collect (list command
@@ -161,17 +162,17 @@ If a session buffer and frame is not active, emacs will show a notification when
 #+end_src
 
 #+RESULTS:
-| Command                  | Description                                                                                                                                  |
-|--------------------------+----------------------------------------------------------------------------------------------------------------------------------------------|
-| opencode                 | Open opencode sessions control buffer for the current project directory.                                                                     |
-| opencode-connect         | Connect to opencode server, prompting for HOST and PORT.                                                                                     |
-| opencode-disconnect      | Disconnect from opencode server, optionally log EVENT.                                                                                       |
-| opencode-select-project  | Completing read to prompt which project to select.                                                                                           |
-| opencode-select-session  | Select among open session buffers.                                                                                                           |
-| opencode-new-worktree    | Create a new git branch, and worktree prompting for a name. Then open an opencode session in it.                                             |
-| opencode-new-session     | Create a new session. With a prefix argument it will ask for TITLE. Without it will use a default title and then automatically generate one. |
-| opencode-select-idle     | Select a session that hasn’t been visited since it went idle.                                                                                |
-| opencode-visit-last-idle | Open the most recent session to notify as idle.                                                                                              |
+| Command                      | Description                                                                                                                                                                                       |
+|------------------------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| opencode                     | Open opencode sessions control buffer for the current project directory. Connects to an existing server if one is running, otherwise starts a new one if ‘opencode-auto-start-server’ is non-nil. |
+| opencode-connect             | Connect to opencode server, prompting for HOST and PORT.                                                                                                                                          |
+| opencode-disconnect          | Disconnect from opencode server, optionally log EVENT.                                                                                                                                            |
+| opencode-select-project      | Completing read to prompt which project to select.                                                                                                                                                |
+| opencode-select-open-session | Select among open session buffers.                                                                                                                                                                |
+| opencode-new-worktree        | Create a new git branch, and worktree prompting for a name. Then open an opencode session in it.                                                                                                  |
+| opencode-new-session         | Create a new session. With a prefix argument it will ask for TITLE. Without it will use a default title and then automatically generate one.                                                      |
+| opencode-select-idle         | Select a session that hasn’t been visited since it went idle.                                                                                                                                     |
+| opencode-visit-last-idle     | Open the most recent session to notify as idle.                                                                                                                                                   |
 
 * Question Tool
 #+HTML: <video src="/sczi/opencode.el/media/branch/main/screenshots/question.webm" controls></video>

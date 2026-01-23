@@ -59,6 +59,7 @@
     "TAB" 'opencode-cycle-session-agent
     "C-c r" 'opencode-rename-session
     "C-c n" 'opencode-new-session
+    "C-c l" 'opencode-select-session
     "C-c c" 'opencode-select-child-session
     "C-c p" 'opencode-open-parent
     "C-c f" 'opencode-add-file
@@ -132,7 +133,7 @@ Accepts (\"name\" . buffer) to work as a read-buffer predicate."
                          (list (cdr buf)))
     opencode-session-id))
 
-(defun opencode-select-session ()
+(defun opencode-select-open-session ()
   "Select among open session buffers."
   (interactive)
   (switch-to-buffer
@@ -154,9 +155,21 @@ Accepts (\"name\" . buffer) to work as a read-buffer predicate."
       (opencode-open-session (pop opencode-alerted-sessions))
     (message "No idle sessions")))
 
-(defun opencode--select-sessions (prompt sessions no-sessions-message)
+(defun opencode-select-session ()
+  "Select and open a session from the current project using completion."
+  (interactive)
+  (opencode-api-sessions sessions
+    (opencode--select-sessions "Session: "
+                               (seq-remove (lambda (session)
+                                             (alist-get 'parentID session))
+                                           sessions)
+                               (format "No sessions in %s" default-directory)
+                               :pop-to-buffer nil)))
+
+(cl-defun opencode--select-sessions (prompt sessions no-sessions-message &key (pop-to-buffer t))
   "Select a session from SESSIONS to open.
-Use PROMPT and display NO-SESSIONS-MESSAGE if SESSIONS is empty."
+Use PROMPT and display NO-SESSIONS-MESSAGE if SESSIONS is empty.
+POP-TO-BUFFER controls whether to pop to or switch to the session buffer."
   (if sessions
       (opencode-open-session
        (opencode--annotated-completion
@@ -167,7 +180,8 @@ Use PROMPT and display NO-SESSIONS-MESSAGE if SESSIONS is empty."
                                  session
                                  (opencode--format-time-ago
                                   (opencode--time-ago
-                                   session 'updated)))))))
+                                   session 'updated))))))
+       :pop-to-buffer pop-to-buffer)
     (message no-sessions-message)))
 
 (defun opencode-select-idle ()
@@ -758,8 +772,9 @@ Assign the overlay EXTRA-PROP with EXTRA-VALUE."
     (when (string= tool "edit")
       (opencode--refine-diff-hunks start))))
 
-(defun opencode-open-session (session)
-  "Open comint based shell for SESSION."
+(cl-defun opencode-open-session (session &key (pop-to-buffer t))
+  "Open comint based shell for SESSION.
+POP-TO-BUFFER controls whether to pop to or switch to the session buffer."
   (let-alist session
     (if (buffer-live-p (gethash .id opencode-session-buffers))
         (pop-to-buffer (gethash .id opencode-session-buffers))
@@ -813,7 +828,9 @@ Assign the overlay EXTRA-PROP with EXTRA-VALUE."
                            (+ .tokens.input .tokens.output .tokens.reasoning
                               .tokens.cache.read .tokens.cache.write))))))
               (opencode--show-prompt)))
-          (pop-to-buffer buffer))))))
+          (if pop-to-buffer
+              (pop-to-buffer buffer)
+            (switch-to-buffer buffer)))))))
 
 (defun opencode--current-message-number ()
   "Return the 0-indexed message number at point.

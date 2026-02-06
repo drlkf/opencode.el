@@ -172,9 +172,10 @@ Run ON-CONNECT after connected."
 Connects to an existing server if one is running, otherwise starts a new one
 if `opencode-auto-start-server' is non-nil."
   (interactive)
-  (let ((project-dir (if-let (proj (project-current))
-                         (expand-file-name (project-root proj))
-                       (expand-file-name default-directory))))
+  (let ((project-dir (expand-file-name
+                      (if-let (proj (project-current))
+                          (project-root proj)
+                        default-directory))))
     (opencode-autoconnect (lambda () (opencode-open-project project-dir)))))
 
 (defun opencode-connect (host port)

@@ -33,6 +33,7 @@
 (require 'notifications)
 (require 'opencode-api)
 (require 'opencode-common)
+(require 'opencode-question)
 (require 'opencode-sessions)
 (require 'plz-media-type)
 (require 'plz-event-source)
@@ -340,31 +341,11 @@ Also prompts for pending questions if any."
 
 (defun opencode--prompt-questions (question-id questions)
   "Prompt user to answer QUESTIONS, then reply or reject to QUESTION-ID.
-QUESTIONS is a vector of question objects with `question', `header', and
-`options' fields.  Each option has `label' and `description' fields.
-If user selects \"Other\", prompts for custom input using the description.
-If user quits, rejects the question via API."
-  (condition-case nil
-      (let ((answers
-             (cl-loop for q across questions
-                      for question = (alist-get 'question q)
-                      for options = (alist-get 'options q)
-                      for candidates = (cl-loop for opt across options
-                                                for label = (alist-get 'label opt)
-                                                for desc = (alist-get 'description opt)
-                                                collect (list label label desc))
-                      for answer = (opencode--annotated-completion
-                                    (concat question " ")
-                                    candidates)
-                      collect (list answer))))
-        (opencode-api-reply-questions (question-id)
-            `((answers . ,(vconcat answers)))
-            _result
-          nil))
-    (quit
-     (opencode-api-reject-questions (question-id)
-         _result
-       nil))))
+QUESTIONS is a vector of question objects with `question', `header',
+`options', and `multiple' fields.  Each option has `label' and
+`description' fields.  Displays a transient popup for each question.
+On confirm, replies to the server.  On reject or dismiss, rejects."
+  (opencode-question--prompt question-id questions))
 
 (defun opencode--permission-request (permission-id session-id type title)
   "Respond to permission request from opencode.

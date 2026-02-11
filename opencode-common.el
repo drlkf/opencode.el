@@ -126,5 +126,12 @@ annotation to show."
       nil t)
      candidate-results)))
 
+(defun opencode--format-questions (questions)
+  "Format QUESTIONS showing ❓ prefix for each question."
+  (string-join
+   (cl-loop for q being the elements of questions
+            for question-text = (alist-get 'question q)
+            collect (concat "❓ " question-text "\n"))))
+
 (provide 'opencode-common)
 ;;; opencode-common.el ends here

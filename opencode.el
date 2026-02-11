@@ -286,10 +286,8 @@ Or nil to disable logging.")
              (get-buffer-process buffer))
     (with-current-buffer buffer
       (opencode--maybe-insert-block-spacing)
-      (cl-loop for q across questions
-               for question-text = (alist-get 'question q)
-               do (opencode--output (concat "❓ " question-text "\n"))
-               finally (opencode--output "\n")))))
+      (opencode--output (opencode--format-questions questions))
+      (opencode--output "\n"))))
 
 (defun opencode--window-selection-change-hook (_frame)
   "Hook to remove session from the alerted sessions list when it's visited.

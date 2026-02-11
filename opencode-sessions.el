@@ -719,6 +719,8 @@ Assign the overlay EXTRA-PROP with EXTRA-VALUE."
          (format "glob \"%s\"\n\n" .pattern)))
       ("todowrite"
        (concat (opencode--render-todos .todos) "\n\n"))
+      ("question"
+       (concat (opencode--format-questions (alist-get 'questions input)) "\n\n"))
       (_ (if (= 1 (length input))
              (format "%s %s\n\n" tool (cdar input))
            ;; Multiple arguments: tool-name, then arg-name: value per line

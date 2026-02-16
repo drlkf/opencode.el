@@ -92,10 +92,16 @@ When nil, `opencode' will only connect to an already running server."
 
 (defun opencode--server-running-p ()
   "Return non-nil if an opencode server is running at configured host and port."
-  (ignore-errors
-    (plz 'get (format "http://%s:%d/global/health" opencode-host opencode-port)
-      :headers (list (opencode--auth-header))
-      :timeout 1)))
+  (condition-case err
+      (plz 'get (format "http://%s:%d/global/health" opencode-host opencode-port)
+        :headers (list (opencode--auth-header))
+        :timeout 1)
+    (plz-http-error
+     (when-let (plz-error (cl-third err))
+       (when (= 401 (plz-response-status (plz-error-response plz-error)))
+         (user-error "OpenCode server is already running but password protected: \
+set `opencode-server-password' to connect to it"))))
+    (error nil)))
 
 (defun opencode--serve-command ()
   "Return the command to start the opencode server."

@@ -390,6 +390,8 @@ Args are PERMISSION-ID, SESSION-ID, and the TYPE and TITLE of the request."
                (session.deleted (delete-process))))))
         (session.error (opencode-session--display-error .sessionID .error.data.message))
         (message.part.updated (opencode-session--update-part .part .delta))
+        (message.part.delta (opencode-session--handle-part-delta
+                             .sessionID .messageID .partID .field .delta))
         (message.updated (opencode-session--message-updated .info))
         (permission.updated (opencode--permission-request .id .sessionID .type .title))
         (question.asked

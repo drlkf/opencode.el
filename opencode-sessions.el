@@ -534,6 +534,25 @@ Assign the overlay EXTRA-PROP with EXTRA-VALUE."
                         'opencode-request-margin-highlight)
   (goto-char (point-max)))
 
+(defun opencode-session--handle-part-delta (session-id message-id _part-id field delta)
+  "Handle a message.part.delta event for SESSION-ID and MESSAGE-ID.
+_PART-ID is unused.  FIELD is the content type and DELTA is the new text."
+  (when-let ((buffer (gethash session-id opencode-session-buffers))
+             (process (get-buffer-process buffer))
+             (message-parts (assoc-string message-id opencode-assistant-messages)))
+    (with-current-buffer buffer
+      (let ((type (intern field)))
+        (unless (eq type (cadr message-parts))
+          (when (cddr message-parts)
+            (opencode--render-last-block (cadr message-parts) (cddr message-parts))
+            (opencode--maybe-insert-block-spacing))
+          (setf (cdr message-parts)
+                (cons type (marker-position (process-mark process))))
+          (setf delta (string-trim-left delta)))
+        (pcase field
+          ("reasoning" (opencode--insert-reasoning-block delta))
+          ("text" (opencode--output delta)))))))
+
 (defun opencode-session--update-part (part delta)
   "Display PART, partial message output. DELTA is new text since last update."
   (let-alist part

@@ -534,9 +534,15 @@ Assign the overlay EXTRA-PROP with EXTRA-VALUE."
                         'opencode-request-margin-highlight)
   (goto-char (point-max)))
 
-(defun opencode-session--update-part (part delta)
-  "Display PART, partial message output. DELTA is new text since last update."
+(defun opencode-session--update-part (part delta type)
+  "Display PART, partial message output. DELTA is new text since last update.
+TYPE is text|reasoning|tool|step-finish"
   (let-alist part
+    (if .time.end
+        (remhash .id opencode-part-type)
+      ;; only will follow up with message.part.delta updates when it has "" as text
+      (when (string-empty-p .text)
+        (puthash .id type opencode-part-type)))
     (when-let ((buffer (gethash .sessionID opencode-session-buffers))
                (process (get-buffer-process buffer))
                (message-parts (assoc-string .messageID opencode-assistant-messages)))
@@ -553,9 +559,9 @@ Assign the overlay EXTRA-PROP with EXTRA-VALUE."
                                                         (marker-position (process-mark process)))))))
             ;; don't display margins on extra whitespace
             (when (and delta
-                       (not (string= .type last-type)))
+                       (not (string= type last-type)))
               (setf delta (string-trim-left delta)))
-            (pcase .type
+            (pcase type
               ((and "reasoning" (guard delta))
                (maybe-render-last-and-update-message-parts 'reasoning)
                (opencode--insert-reasoning-block delta))

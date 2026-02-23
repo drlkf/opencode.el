@@ -358,12 +358,13 @@ Args are PERMISSION-ID, SESSION-ID, and the TYPE and TITLE of the request."
 (defun opencode--handle-message (event)
   "Handle a message EVENT from opencode server."
   (let* ((data (json-read-from-string (plz-event-source-event-data event)))
-         (msg-type (intern (alist-get 'type data))))
+         (msg-type (intern (alist-get 'type data)))
+         (properties (alist-get 'properties data)))
     (unless (memq msg-type '(file.watcher.updated server.heartbeat session.diff))
       (opencode--log-event "MESSAGE" data)
-      (let-alist (alist-get 'properties data)
+      (let-alist properties
         (cl-case msg-type
-          (tui.toast.show (opencode--toast-show (alist-get 'properties data)))
+          (tui.toast.show (opencode--toast-show properties))
           (session.idle (opencode-api-session (.sessionID)
                             session
                           (let ((buffer (gethash .sessionID opencode-session-buffers)))
@@ -390,7 +391,9 @@ Args are PERMISSION-ID, SESSION-ID, and the TYPE and TITLE of the request."
                  (session.updated (rename-buffer (format "*OpenCode: %s*" .info.title) t))
                  (session.deleted (delete-process))))))
           (session.error (opencode-session--display-error .sessionID .error.data.message))
-          (message.part.updated (opencode-session--update-part .part .delta))
+          (message.part.updated (opencode-session--update-part .part .delta .part.type))
+          (message.part.delta (opencode-session--update-part properties .delta
+                                                             (gethash .partID opencode-part-type)))
           (message.updated (opencode-session--message-updated .info))
           (permission.updated (opencode--permission-request .id .sessionID .type .title))
           (question.asked

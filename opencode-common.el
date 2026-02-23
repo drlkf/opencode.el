@@ -45,6 +45,9 @@
 (defvar opencode-providers nil
   "List of available providers and models.")
 
+(defvar opencode-part-type (make-hash-table :test 'equal)
+  "Mapping of part id's to their type.")
+
 (defvar-local opencode--extra-parts nil
   "An list containing extra parts to send with the next input.")
 

@@ -359,61 +359,62 @@ Args are PERMISSION-ID, SESSION-ID, and the TYPE and TITLE of the request."
   "Handle a message EVENT from opencode server."
   (let* ((data (json-read-from-string (plz-event-source-event-data event)))
          (msg-type (intern (alist-get 'type data))))
-    (opencode--log-event "MESSAGE" data)
-    (let-alist (alist-get 'properties data)
-      (cl-case msg-type
-        (tui.toast.show (opencode--toast-show (alist-get 'properties data)))
-        (session.idle (opencode-api-session (.sessionID)
-                          session
-                        (let ((buffer (gethash .sessionID opencode-session-buffers)))
-                          (with-current-buffer buffer
-                            (opencode--show-prompt))
-                          (unless (or
-                                   (opencode--buffer-active-p buffer)
-                                   ;; don't show alert for subagent sessions
-                                   (alist-get 'parentID session))
-                            (opencode--toast-show `((title . "OpenCode Finished")
-                                                    (message . ,(alist-get 'title session))
-                                                    (variant . "success")
-                                                    (timeout . 1000)))
-                            (push session opencode-alerted-sessions)))))
-        (session.status (opencode-session--set-status .sessionID .status.type))
-        ((session.created session.updated session.deleted)
-         (dolist (buffer (map-elt opencode--session-control-buffers .info.projectID))
-           (when (buffer-live-p buffer)
-             (with-current-buffer buffer
-               (opencode-sessions-redisplay))))
-         (when-let (buffer (map-elt opencode-session-buffers .info.id))
-           (with-current-buffer buffer
-             (cl-case msg-type
-               (session.updated (rename-buffer (format "*OpenCode: %s*" .info.title) t))
-               (session.deleted (delete-process))))))
-        (session.error (opencode-session--display-error .sessionID .error.data.message))
-        (message.part.updated (opencode-session--update-part .part .delta))
-        (message.updated (opencode-session--message-updated .info))
-        (permission.updated (opencode--permission-request .id .sessionID .type .title))
-        (question.asked
-         (let ((buffer (gethash .sessionID opencode-session-buffers)))
-           ;; Output questions to the buffer
-           (opencode--output-questions buffer .questions)
-           (if (opencode--buffer-active-p buffer)
-               ;; Buffer is active, prompt immediately
-               (opencode--prompt-questions .id .questions)
-             ;; Buffer not active, show notification and store pending
-             (opencode--toast-show `((title . "OpenCode Questions")
-                                     (message . ,(alist-get
-                                                  'question
-                                                  (aref .questions 0)))
-                                     (variant . "info")
-                                     (timeout . 1000)))
-             (opencode-api-session (.sessionID)
-                 session
-               (push session opencode-alerted-sessions))
-             (when buffer
+    (unless (memq msg-type '(file.watcher.updated server.heartbeat session.diff))
+      (opencode--log-event "MESSAGE" data)
+      (let-alist (alist-get 'properties data)
+        (cl-case msg-type
+          (tui.toast.show (opencode--toast-show (alist-get 'properties data)))
+          (session.idle (opencode-api-session (.sessionID)
+                            session
+                          (let ((buffer (gethash .sessionID opencode-session-buffers)))
+                            (with-current-buffer buffer
+                              (opencode--show-prompt))
+                            (unless (or
+                                     (opencode--buffer-active-p buffer)
+                                     ;; don't show alert for subagent sessions
+                                     (alist-get 'parentID session))
+                              (opencode--toast-show `((title . "OpenCode Finished")
+                                                      (message . ,(alist-get 'title session))
+                                                      (variant . "success")
+                                                      (timeout . 1000)))
+                              (push session opencode-alerted-sessions)))))
+          (session.status (opencode-session--set-status .sessionID .status.type))
+          ((session.created session.updated session.deleted)
+           (dolist (buffer (map-elt opencode--session-control-buffers .info.projectID))
+             (when (buffer-live-p buffer)
                (with-current-buffer buffer
-                 (setq opencode-session-pending-questions
-                       (cons .id .questions)))))))
-        (otherwise (opencode--log-event "WARNING" "unhandled message type"))))))
+                 (opencode-sessions-redisplay))))
+           (when-let (buffer (map-elt opencode-session-buffers .info.id))
+             (with-current-buffer buffer
+               (cl-case msg-type
+                 (session.updated (rename-buffer (format "*OpenCode: %s*" .info.title) t))
+                 (session.deleted (delete-process))))))
+          (session.error (opencode-session--display-error .sessionID .error.data.message))
+          (message.part.updated (opencode-session--update-part .part .delta))
+          (message.updated (opencode-session--message-updated .info))
+          (permission.updated (opencode--permission-request .id .sessionID .type .title))
+          (question.asked
+           (let ((buffer (gethash .sessionID opencode-session-buffers)))
+             ;; Output questions to the buffer
+             (opencode--output-questions buffer .questions)
+             (if (opencode--buffer-active-p buffer)
+                 ;; Buffer is active, prompt immediately
+                 (opencode--prompt-questions .id .questions)
+               ;; Buffer not active, show notification and store pending
+               (opencode--toast-show `((title . "OpenCode Questions")
+                                       (message . ,(alist-get
+                                                    'question
+                                                    (aref .questions 0)))
+                                       (variant . "info")
+                                       (timeout . 1000)))
+               (opencode-api-session (.sessionID)
+                   session
+                 (push session opencode-alerted-sessions))
+               (when buffer
+                 (with-current-buffer buffer
+                   (setq opencode-session-pending-questions
+                         (cons .id .questions)))))))
+          (otherwise (opencode--log-event "WARNING" "unhandled message type")))))))
 
 (defun opencode-disconnect (&optional event)
   "Disconnect from opencode server, optionally log EVENT."

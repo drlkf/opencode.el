@@ -649,31 +649,41 @@ TYPE is text|reasoning|tool|step-finish"
 
 (defun opencode--format-edit-diff (old-string new-string)
   "Generate diff output comparing OLD-STRING to NEW-STRING."
+  (let ((old-string (or old-string ""))
+        (new-string (or new-string "")))
+    (with-temp-buffer
+      (let ((old-buf (current-buffer)))
+        (insert old-string)
+        (insert "\n")
+        (with-temp-buffer
+          (let ((new-buf (current-buffer)))
+            (insert new-string)
+            (insert "\n")
+            (with-temp-buffer
+              (let ((diff-buf (current-buffer))
+                    (inhibit-read-only t))
+                ;; Run diff synchronously into this temp buffer
+                (diff-no-select old-buf new-buf nil t diff-buf)
+                (delay-mode-hooks (diff-mode))
+                (font-lock-ensure)
+                ;; Delete first 3 lines (diff command, ---, +++)
+                (goto-char (point-min))
+                (forward-line 3)
+                (delete-region (point-min) (point))
+                ;; Delete last 2 lines (diff finished timestamp)
+                (goto-char (point-max))
+                (forward-line -2)
+                (delete-region (point) (point-max))
+                ;; Return the diff content
+                (buffer-string)))))))))
+
+(defun opencode--fontify-diff (diff-string)
+  "Fontify DIFF-STRING using diff-mode and return the propertized text."
   (with-temp-buffer
-    (let ((old-buf (current-buffer)))
-      (insert old-string)
-      (insert "\n")
-      (with-temp-buffer
-        (let ((new-buf (current-buffer)))
-          (insert new-string)
-          (insert "\n")
-          (with-temp-buffer
-            (let ((diff-buf (current-buffer))
-                  (inhibit-read-only t))
-              ;; Run diff synchronously into this temp buffer
-              (diff-no-select old-buf new-buf nil t diff-buf)
-              (delay-mode-hooks (diff-mode))
-              (font-lock-ensure)
-              ;; Delete first 3 lines (diff command, ---, +++)
-              (goto-char (point-min))
-              (forward-line 3)
-              (delete-region (point-min) (point))
-              ;; Delete last 2 lines (diff finished timestamp)
-              (goto-char (point-max))
-              (forward-line -2)
-              (delete-region (point) (point-max))
-              ;; Return the diff content
-              (buffer-string))))))))
+    (insert diff-string)
+    (delay-mode-hooks (diff-mode))
+    (font-lock-ensure)
+    (buffer-string)))
 
 (defun opencode--render-todos (todos)
   "Render TODOS as markdown todo list."
@@ -692,41 +702,66 @@ TYPE is text|reasoning|tool|step-finish"
     todos
     "\n")))
 
-(defun opencode--format-tool-call (tool input)
-  "Format TOOL call with INPUT arguments for display."
-  (let-alist input
-    (when .filePath
-      (setf .filePath (file-relative-name .filePath default-directory)))
+(defun opencode--format-tool-call (tool input &optional state)
+  "Format TOOL call with INPUT arguments for display.
+Optional STATE contains additional metadata from the server response."
+  (let ((filePath (alist-get "filePath" input nil nil #'string=)))
+    (when filePath
+      (setq filePath (file-relative-name filePath default-directory)))
     (pcase tool
       ("edit"
-       (concat "edit " .filePath ":\n"
-               (opencode--format-edit-diff .oldString .newString)
-               "\n"))
+       (let* ((metadata (alist-get "metadata" state nil nil #'string=))
+              (server-diff (alist-get "diff" metadata nil nil #'string=))
+              (edits (alist-get "edits" input nil nil #'string=)))
+         (concat "edit " filePath ":\n"
+                 (if server-diff
+                     ;; Usar el diff ya calculado por el servidor con fontificación
+                     (opencode--fontify-diff server-diff)
+                   ;; Fallback: crear un diff simple con las líneas cambiadas
+                   (let ((lines-to-string (lambda (lines)
+                                            (cond ((stringp lines) lines)
+                                                  ((sequencep lines)
+                                                   (mapconcat #'identity lines "\n"))
+                                                  (t "")))))
+                     (mapconcat (lambda (edit)
+                                  (let ((op (alist-get "op" edit nil nil #'string=))
+                                        (lines (alist-get "lines" edit nil nil #'string=)))
+                                    (format "@@ %s @@\n%s" op (funcall lines-to-string lines))))
+                                edits
+                                "\n")))
+                 "\n")))
       ("read"
-       (if (and .offset .limit)
-           (format "read %s [offset=%d, limit=%d]\n\n"
-                   .filePath .offset .limit)
-         (format "read %s\n\n" .filePath)))
+       (let ((offset (alist-get "offset" input nil nil #'string=))
+             (limit (alist-get "limit" input nil nil #'string=)))
+         (if (and offset limit)
+             (format "read %s [offset=%s, limit=%s]\n\n" filePath offset limit)
+           (format "read %s\n\n" filePath))))
       ("grep"
-       (format "grep \"%s\" in %s\n\n" .pattern (or .include .path)))
+       (let ((pattern (alist-get "pattern" input nil nil #'string=))
+             (include (alist-get "include" input nil nil #'string=))
+             (path (alist-get "path" input nil nil #'string=)))
+         (format "grep \"%s\" in %s\n\n" pattern (or include path))))
       ("bash"
-       (format "# %s\n$ %s\n\n"
-               .description
-               .command))
+       (let ((description (alist-get "description" input nil nil #'string=))
+             (command (alist-get "command" input nil nil #'string=)))
+         (format "# %s\n$ %s\n\n" description command)))
       ("websearch"
-       (format "websearch \"%s\"\n\n" .query))
+       (let ((query (alist-get "query" input nil nil #'string=)))
+         (format "websearch \"%s\"\n\n" query)))
       ("call_omo_agent"
-       (format "call_omo_agent: %s\n\n%s\n\n" .description .prompt))
+       (let ((description (alist-get "description" input nil nil #'string=))
+             (prompt (alist-get "prompt" input nil nil #'string=)))
+         (format "call_omo_agent: %s\n\n%s\n\n" description prompt)))
       ("glob"
-       (if .path
-           (format "glob \"%s\" in %s\n\n"
-                   .pattern
-                   (file-relative-name .path default-directory))
-         (format "glob \"%s\"\n\n" .pattern)))
+       (let ((pattern (alist-get "pattern" input nil nil #'string=))
+             (path (alist-get "path" input nil nil #'string=)))
+         (if path
+             (format "glob \"%s\" in %s\n\n" pattern (file-relative-name path default-directory))
+           (format "glob \"%s\"\n\n" pattern))))
       ("todowrite"
-       (concat (opencode--render-todos .todos) "\n\n"))
+       (concat (opencode--render-todos (alist-get "todos" input nil nil #'string=)) "\n\n"))
       ("question"
-       (concat (opencode--format-questions (alist-get 'questions input)) "\n\n"))
+       (concat (opencode--format-questions (alist-get "questions" input nil nil #'string=)) "\n\n"))
       (_ (if (= 1 (length input))
              (format "%s %s\n\n" tool (cdar input))
            ;; Multiple arguments: tool-name, then arg-name: value per line
@@ -770,11 +805,12 @@ TYPE is text|reasoning|tool|step-finish"
     (get-buffer-process
      (current-buffer)))))
 
-(defun opencode--insert-tool-block (tool input)
-  "Insert TOOL call with INPUT as margin-highlighted block."
+(defun opencode--insert-tool-block (tool input &optional state)
+  "Insert TOOL call with INPUT as margin-highlighted block.
+Optional STATE contains additional metadata from the server response."
   (let ((start (opencode--session-process-position)))
     (opencode--insert-block-with-margin
-     (opencode--format-tool-call tool input)
+     (opencode--format-tool-call tool input state)
      'opencode-tool-margin-highlight)
     ;; For edit tools, apply diff hunk refinement after insertion
     (when (string= tool "edit")
@@ -820,13 +856,18 @@ POP-TO-BUFFER controls whether to pop to or switch to the session buffer."
                     ("user" (opencode--replay-user-request message))
                     ("assistant"
                      (dolist (part (alist-get 'parts message))
-                       (let-alist part
-                         (if (string= .type "tool")
-                             (opencode--insert-tool-block .tool .state.input)
-                           (when .text
-                             (let ((text (opencode--render-markdown (string-trim .text))))
+                       (let* ((part-type (alist-get "type" part nil nil #'string=))
+                              (part-text (alist-get "text" part nil nil #'string=))
+                              (part-tool (alist-get "tool" part nil nil #'string=))
+                              (part-state (alist-get "state" part nil nil #'string=))
+                              (part-input (when part-state
+                                            (alist-get "input" part-state nil nil #'string=))))
+                         (if (string= part-type "tool")
+                             (opencode--insert-tool-block part-tool part-input part-state)
+                           (when part-text
+                             (let ((text (opencode--render-markdown (string-trim part-text))))
                                (unless (string-empty-p text)
-                                 (pcase .type
+                                 (pcase part-type
                                    ("text" (opencode--output text))
                                    ("reasoning"
                                     (opencode--insert-reasoning-block

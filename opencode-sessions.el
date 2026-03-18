@@ -847,6 +847,7 @@ POP-TO-BUFFER controls whether to pop to or switch to the session buffer."
         (with-current-buffer buffer
           (opencode-session-mode)
           (setq opencode-session-id .id
+                opencode-last-session-buffer buffer
                 default-directory .directory
                 opencode-session-variant variant
                 opencode-session-agents (mapcar (lambda (agent)

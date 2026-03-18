@@ -387,13 +387,16 @@ Each element is (display-name . (provider-id provider-name model-id))."
              (not (eq this-command 'comint-send-input)))
     (let ((file-url (overlay-get overlay 'file-url))
           (buffer-name (overlay-get overlay 'buffer-name))
+          (region-id (overlay-get overlay 'region-id))
           (ov-start (overlay-start overlay))
           (ov-end (overlay-end overlay)))
       (setq opencode--extra-parts
             (seq-remove (lambda (part)
                           (let-alist part
-                            (or (string= file-url .url)
-                                (string= buffer-name .metadata.buffer-name))))
+                            (cond
+                             (file-url (string= file-url .url))
+                             (buffer-name (string= buffer-name .metadata.buffer-name))
+                             (region-id (eq region-id .metadata.region-id)))))
                         opencode--extra-parts))
       (delete-region ov-start ov-end)
       (delete-overlay overlay))))
@@ -415,30 +418,37 @@ Assign the overlay EXTRA-PROP with EXTRA-VALUE."
     (overlay-put ov 'modification-hooks '(opencode--remove-label))
     ov))
 
+(defmacro with-last-opencode-session (&rest body)
+  "Run BODY with the last used opencode session buffer active."
+  `(if opencode-last-session-buffer
+       (if (buffer-live-p opencode-last-session-buffer)
+           (with-current-buffer opencode-last-session-buffer
+             ,@body)
+         (user-error "Last selected OpenCode session buffer is no longer active"))
+     (user-error "Open an OpenCode session first")))
+
 (defun opencode-add-file (&optional file)
   "Add a FILE to context, or prompt for file in current project."
   (interactive)
-  (if opencode-last-session-buffer
-      (with-current-buffer opencode-last-session-buffer
-        (let* ((project (project-current t))
-               (file (or file
-                         (project--read-file-name project
-                                                  "Add to context"
-                                                  (project-files project)
-                                                  nil
-                                                  'file-name-history)))
-               (project-root (project-root project))
-               (relative-name (if (file-in-directory-p file project-root)
-                                  (file-relative-name file project-root)
-                                file))
-               (url (concat "file://" file)))
-          (push `((type . file)
-                  (filename . ,relative-name)
-                  (mime . ,(opencode--mimetype file))
-                  (url . ,url))
-                opencode--extra-parts)
-          (opencode--insert-intangible (concat relative-name " ") 'file-url url)))
-    (user-error "Open an OpenCode session first")))
+  (with-last-opencode-session
+   (let* ((project (project-current t))
+          (file (or file
+                    (project--read-file-name project
+                                             "Add to context"
+                                             (project-files project)
+                                             nil
+                                             'file-name-history)))
+          (project-root (project-root project))
+          (relative-name (if (file-in-directory-p file project-root)
+                             (file-relative-name file project-root)
+                           file))
+          (url (concat "file://" file)))
+     (push `((type . file)
+             (filename . ,relative-name)
+             (mime . ,(opencode--mimetype file))
+             (url . ,url))
+           opencode--extra-parts)
+     (opencode--insert-intangible (concat relative-name " ") 'file-url url))))
 
 (defun opencode-add-file-dwim ()
   "If in Dired, add all marked files, or file at point if none marked.
@@ -467,6 +477,25 @@ Otherwise prompt for file in current project."
             (metadata . ((buffer-name . ,buffer))))
           opencode--extra-parts)
     (opencode--insert-intangible buffer 'buffer-name buffer)))
+
+(defun opencode-add-region ()
+  "Add the active region to context."
+  (interactive)
+  (if (use-region-p)
+      (let ((region (buffer-substring-no-properties (region-beginning)
+                                                    (region-end)))
+            (region-id (gensym)))
+        (with-last-opencode-session
+         (push `((type . text)
+                 (text . ,(concat "<region>" region "</region>"))
+                 (synthetic . t)
+                 (metadata . ((region-id . ,region-id))))
+               opencode--extra-parts)
+         (opencode--insert-intangible
+          (format "region: %s "
+                  (truncate-string-to-width region 24 0 nil (truncate-string-ellipsis)))
+          'region-id region-id)))
+    (user-error "No active region")))
 
 (defun opencode--send-input (_proc string)
   "Send STRING as input to current opencode session."

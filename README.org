@@ -23,6 +23,7 @@ of advantages over the official TUI:
 
    - add any emacs buffer to chat context with =opencode-add-buffer=
    - add files from dired to context with =opencode-add-file-dwim=
+   - add selected region to context with =opencode-add-region=
    - integration with magit is possible, =opencode-new-worktree= will create a new
      git branch and worktree for the current project, and start an opencode session in it
    - use =dabbrev-expand= in the chat window to complete long variable or function
@@ -157,7 +158,8 @@ If a session buffer and frame is not active, emacs will show a notification when
 (cl-loop for command in '(opencode opencode-connect opencode-disconnect
                           opencode-select-project opencode-select-open-session
                           opencode-new-worktree opencode-new-session
-                          opencode-select-idle opencode-visit-last-idle opencode-add-file-dwim)
+                          opencode-select-idle opencode-visit-last-idle
+                          opencode-add-file-dwim opencode-add-region)
          collect (list command
                        (string-join (string-lines (documentation command)) " ")))
 #+end_src
@@ -174,6 +176,8 @@ If a session buffer and frame is not active, emacs will show a notification when
 | opencode-new-session         | Create a new session. With a prefix argument it will ask for TITLE. Without it will use a default title and then automatically generate one.                                                      |
 | opencode-select-idle         | Select a session that hasn’t been visited since it went idle.                                                                                                                                     |
 | opencode-visit-last-idle     | Open the most recent session to notify as idle.                                                                                                                                                   |
+| opencode-add-file-dwim       | If in Dired, add all marked files, or file at point if none marked. Otherwise add the current buffer’s file. Otherwise prompt for file in current project.                                        |
+| opencode-add-region          | Add the active region to context.                                                                                                                                                                 |
 
 * Question Tool
 #+HTML: <video src="/sczi/opencode.el/media/branch/main/screenshots/question.webm" controls></video>

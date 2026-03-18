@@ -63,7 +63,7 @@
     "C-c c" 'opencode-select-child-session
     "C-c p" 'opencode-open-parent
     "C-c f" 'opencode-add-file
-    "C-c b" 'opencode-add-buffer
+    "C-c b" 'opencode-add-buffer-dwim
     "C-c s" 'opencode-share-session
     "C-c u" 'opencode-unshare-session
     "C-c U" 'opencode-unshare-all-sessions
@@ -463,20 +463,23 @@ Otherwise prompt for file in current project."
           (user-error "No file at point, and no marked files")))
     (opencode-add-file (buffer-file-name))))
 
-(defun opencode-add-buffer ()
-  "Add a buffer to context."
+(defun opencode-add-buffer-dwim ()
+  "Add current buffer or prompt for one to add."
   (interactive)
-  (let ((buffer (read-buffer "Add to context: ")))
-    (push `((type . text)
-            (text . ,(concat
-                      (format "<buffer name=\"%s\">" buffer)
-                      (with-current-buffer buffer
-                        (buffer-substring-no-properties (point-min) (point-max)))
-                      "</buffer>"))
-            (synthetic . t)
-            (metadata . ((buffer-name . ,buffer))))
-          opencode--extra-parts)
-    (opencode--insert-intangible buffer 'buffer-name buffer)))
+  (let ((buffer (if opencode-session-id
+                    (read-buffer "Add to context: ")
+                  (buffer-name))))
+    (with-last-opencode-session
+     (push `((type . text)
+             (text . ,(concat
+                       (format "<buffer name=\"%s\">" buffer)
+                       (with-current-buffer buffer
+                         (buffer-substring-no-properties (point-min) (point-max)))
+                       "</buffer>"))
+             (synthetic . t)
+             (metadata . ((buffer-name . ,buffer))))
+           opencode--extra-parts)
+     (opencode--insert-intangible buffer 'buffer-name buffer))))
 
 (defun opencode-add-region ()
   "Add the active region to context."

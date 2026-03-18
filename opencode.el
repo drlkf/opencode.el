@@ -303,7 +303,8 @@ Also prompts for pending questions if any."
           (cl-delete-if (lambda (session)
                           (string= opencode-session-id
                                    (alist-get 'id session)))
-                        opencode-alerted-sessions))
+                        opencode-alerted-sessions)
+          opencode-last-session-buffer (current-buffer))
     ;; Handle pending questions when buffer becomes active
     (when opencode-session-pending-questions
       (let ((pending opencode-session-pending-questions))

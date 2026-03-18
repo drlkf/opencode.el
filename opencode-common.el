@@ -42,6 +42,9 @@
 (defvar opencode-alerted-sessions nil
   "List of unvisited idle sessions.")
 
+(defvar opencode-last-session-buffer nil
+  "Last active opencode session buffer.")
+
 (defvar opencode-providers nil
   "List of available providers and models.")
 

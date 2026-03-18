@@ -415,21 +415,43 @@ Assign the overlay EXTRA-PROP with EXTRA-VALUE."
     (overlay-put ov 'modification-hooks '(opencode--remove-label))
     ov))
 
-(defun opencode-add-file ()
-  "Add a file to context."
+(defun opencode-add-file (&optional file)
+  "Add a FILE to context, or prompt for file in current project."
   (interactive)
-  (let* ((project (project-current t))
-         (all-files (project-files project))
-         (file (project--read-file-name project "Add to context"
-                                        all-files nil 'file-name-history))
-         (relative-name (file-relative-name file (project-root project)))
-         (url (concat "file://" file)))
-    (push `((type . file)
-            (filename . ,relative-name)
-            (mime . ,(opencode--mimetype file))
-            (url . ,url))
-          opencode--extra-parts)
-    (opencode--insert-intangible relative-name 'file-url url)))
+  (if opencode-last-session-buffer
+      (with-current-buffer opencode-last-session-buffer
+        (let* ((project (project-current t))
+               (file (or file
+                         (project--read-file-name project
+                                                  "Add to context"
+                                                  (project-files project)
+                                                  nil
+                                                  'file-name-history)))
+               (project-root (project-root project))
+               (relative-name (if (file-in-directory-p file project-root)
+                                  (file-relative-name file project-root)
+                                file))
+               (url (concat "file://" file)))
+          (push `((type . file)
+                  (filename . ,relative-name)
+                  (mime . ,(opencode--mimetype file))
+                  (url . ,url))
+                opencode--extra-parts)
+          (opencode--insert-intangible (concat relative-name " ") 'file-url url)))
+    (user-error "Open an OpenCode session first")))
+
+(defun opencode-add-file-dwim ()
+  "If in Dired, add all marked files, or file at point if none marked.
+Otherwise add the current buffer's file.
+Otherwise prompt for file in current project."
+  (interactive)
+  (if (derived-mode-p 'dired-mode)
+      (if-let (files (dired-get-marked-files))
+          (mapc #'opencode-add-file files)
+        (if-let (file (dired-get-filename nil t))
+            (opencode-add-file file)
+          (user-error "No file at point, and no marked files")))
+    (opencode-add-file (buffer-file-name))))
 
 (defun opencode-add-buffer ()
   "Add a buffer to context."

@@ -276,14 +276,24 @@ Or nil to disable logging.")
        :replaces-id 5647
        :app-icon 'none))
      ((eq system-type 'darwin)
-      (start-process "opencode-notification" nil "osascript" "-e"
-                     (format "display notification %S with title %S"
-                             .message
-                             (concat (pcase .variant
-                                       ("error" "❌")
-                                       ("warning" "⚠️")
-                                       ((or "info" "success") "ℹ️"))
-                                     " " .title)))))))
+      (let ((title (concat (pcase .variant
+                             ("error" "❌")
+                             ("warning" "⚠️")
+                             ((or "info" "success") "ℹ️"))
+                           " " .title)))
+        (if (executable-find "terminal-notifier")
+            (start-process "opencode-notification" nil "terminal-notifier"
+                           "-title" title
+                           "-message" .message
+                           "-group" "opencode-toast"
+                           "-activate" "org.gnu.Emacs"
+                           "-sound" (pcase .variant
+                                      ((or "error" "warning") "Basso")
+                                      (_ "default")))
+          (start-process "opencode-notification" nil "osascript" "-e"
+                         (format "display notification %S with title %S"
+                                 .message
+                                 title))))))))
 
 (defun opencode--buffer-active-p (buffer)
   "Return non-nil if BUFFER is visible in the selected window of a focused frame."

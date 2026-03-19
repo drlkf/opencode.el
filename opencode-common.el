@@ -54,6 +54,13 @@
 (defvar opencode--session-control-buffers nil
   "An alist mapping of projectIDs to session control buffers for that project.")
 
+(defcustom opencode-toast-function 'opencode--default-toast-show
+  "Function to use to show toast notifications.
+It receives a single argument, PROPERTIES, which is an alist with string keys
+for title, message, variant (error/warning/info/success), and duration"
+  :type 'function
+  :group 'opencode)
+
 (defcustom opencode-server-username "opencode"
   "Username to connect to opencode server."
   :type 'string

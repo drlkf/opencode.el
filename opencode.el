@@ -263,6 +263,10 @@ Or nil to disable logging.")
 
 (defun opencode--toast-show (properties)
   "Show toast notification with PROPERTIES from opencode."
+  (funcall #'opencode-toast-function properties))
+
+(defun opencode--default-toast-show (properties)
+  "Default notifier to show notification with PROPERTIES from opencode."
   (let-alist properties
     (cond
      ((featurep 'dbusbind)

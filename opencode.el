@@ -269,16 +269,41 @@ Or nil to disable logging.")
 
 (defun opencode--toast-show (properties)
   "Show toast notification with PROPERTIES from opencode."
+  (funcall opencode-toast-function properties))
+
+(defun opencode--default-toast-show (properties)
+  "Default notifier to show notification with PROPERTIES from opencode."
   (let-alist properties
-    (notifications-notify
-     :title .title
-     :body .message
-     :urgency (pcase .variant
-                ((or "error" "warning" )'critical)
-                ((or "info" "success") 'normal))
-     :timeout .duration
-     :replaces-id 5647
-     :app-icon 'none)))
+    (cond
+     ((featurep 'dbusbind)
+      (notifications-notify
+       :title .title
+       :body .message
+       :urgency (pcase .variant
+                  ((or "error" "warning" )'critical)
+                  ((or "info" "success") 'normal))
+       :timeout .duration
+       :replaces-id 5647
+       :app-icon 'none))
+     ((eq system-type 'darwin)
+      (let ((title (concat (pcase .variant
+                             ("error" "❌")
+                             ("warning" "⚠️")
+                             ((or "info" "success") "ℹ️"))
+                           " " .title)))
+        (if (executable-find "terminal-notifier")
+            (start-process "opencode-notification" nil "terminal-notifier"
+                           "-title" title
+                           "-message" .message
+                           "-group" "opencode-toast"
+                           "-activate" "org.gnu.Emacs"
+                           "-sound" (pcase .variant
+                                      ((or "error" "warning") "Basso")
+                                      (_ "default")))
+          (start-process "opencode-notification" nil "osascript" "-e"
+                         (format "display notification %S with title %S"
+                                 .message
+                                 title))))))))
 
 (defun opencode--buffer-active-p (buffer)
   "Return non-nil if BUFFER is visible in the selected window of a focused frame."

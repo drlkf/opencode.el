@@ -214,3 +214,4 @@ from the shared folder.
 - =opencode-host= and =opencode-port= are the default host and port to use with =M-x opencode-connect=
 - =opencode-server-username= and =opencode-server-password= configure how to authenticate to the opencode server
 - the =opencode-faces= group configures faces used when displaying sessions
+- =opencode-toast-function= is used to show toast notifications

@@ -762,7 +762,11 @@ TYPE is text|reasoning|tool|step-finish"
                    .filePath .offset .limit)
          (format "read %s\n\n" .filePath)))
       ("grep"
-       (format "grep \"%s\" in %s\n\n" .pattern (or .include .path)))
+       (concat
+        (format "grep \"%s\"" .pattern)
+        (when (or .include .path)
+          (format " in %s" (or .include .path)))
+        "\n\n"))
       ("bash"
        (format "# %s\n$ %s\n\n"
                .description

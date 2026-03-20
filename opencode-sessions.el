@@ -377,7 +377,7 @@ Each element is (display-name . (provider-id provider-name model-id))."
 (defun opencode--mimetype (file)
   "Return guess of mimetype for FILE."
   (pcase (file-name-extension file)
-    ((or "org" (pred null)) "text/plain")
+    ((or "org" "ts" (pred null)) "text/plain")
     (ext (or (mailcap-extension-to-mime ext)
              "text/plain"))))
 

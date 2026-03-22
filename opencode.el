@@ -458,12 +458,11 @@ Args are PERMISSION-ID, SESSION-ID, and the TYPE and TITLE of the request."
   (setq opencode--event-subscriptions nil))
 
 (defun opencode--fetch-agents ()
-  "Fetch available agents from server and filter out subagents or hidden agents."
+  "Fetch available agents from server and filter out hidden agents."
   (opencode-api-agents agents
     (setq opencode-agents
-          (seq-filter (lambda (agent)
-                        (and (string= "primary" (alist-get 'mode agent))
-                             (not (alist-get 'hidden agent))))
+          (seq-remove (lambda (agent)
+                        (alist-get 'hidden agent))
                       agents))))
 
 (defun opencode-new-session (&optional title)

@@ -849,8 +849,8 @@ POP-TO-BUFFER controls whether to pop to or switch to the session buffer."
     (if (buffer-live-p (gethash .id opencode-session-buffers))
         (pop-to-buffer (gethash .id opencode-session-buffers))
       (let ((buffer (generate-new-buffer (format "*OpenCode: %s*" .title)))
-            (agent opencode-session-agent)
-            (agents opencode-session-agents)
+            (agent (copy-tree opencode-session-agent))
+            (agents (copy-tree opencode-session-agents))
             (variant opencode-session-variant))
         (with-current-buffer buffer
           (opencode-session-mode)

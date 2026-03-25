@@ -143,18 +143,26 @@
 
 ;;; Suffix commands
 
+(defun opencode-question--close-on-multiple ()
+  "Exit transient in single-select, stay in multi-select."
+  (if opencode-question--multiple
+      (transient--do-stay)
+    (transient--do-exit)))
+
 (transient-define-suffix opencode-question--do-toggle ()
   "Toggle the checkbox option associated with this suffix."
   :class 'opencode-question-option
-  :transient t
+  :transient #'opencode-question--close-on-multiple
   (interactive)
   (opencode-question--toggle-option
-   (oref (transient-suffix-object) option-index)))
+   (oref (transient-suffix-object) option-index))
+  (unless opencode-question--multiple
+    (opencode-question--do-confirm)))
 
 (transient-define-suffix opencode-question--do-custom ()
   "Type a custom answer."
   :class 'opencode-question-custom
-  :transient t
+  :transient #'opencode-question--close-on-multiple
   (interactive)
   (let ((text (read-string "Custom answer: "
                            opencode-question--custom-text)))
@@ -164,7 +172,8 @@
       (unless opencode-question--multiple
         ;; Single-select: clear all option marks
         (dotimes (i (length opencode-question--marked))
-          (aset opencode-question--marked i nil))))))
+          (aset opencode-question--marked i nil))
+        (opencode-question--do-confirm)))))
 
 (defun opencode-question--confirm-pre-command ()
   "Pre-command function for confirm: exit if selection is non-empty, else stay."
@@ -235,7 +244,7 @@ _CHILDREN is the statically-defined children, which are ignored."
    :description (lambda () (or opencode-question--question-text "Question"))
    :setup-children opencode-question--setup-options]
   [["Actions"
-    ("C-c C-c" "Confirm" opencode-question--do-confirm)
+    ("C-c C-c" "Confirm" opencode-question--do-confirm :if (lambda () opencode-question--multiple))
     ("q"       "Reject"  opencode-question--do-reject)]])
 
 ;;; Entry points

@@ -181,17 +181,22 @@ If a session buffer and frame is not active, emacs will show a notification when
 | opencode-add-buffer-dwim     | Add current buffer or prompt for one to add.                                                                                                                                                      |
 
 * Question Tool
-#+HTML: <video src="/sczi/opencode.el/media/branch/main/screenshots/question.webm" controls></video>
+#+CAPTION: Single choice question
+[[file:screenshots/single_choice_question.png]]
+#+CAPTION: Multiple choice question
+[[file:screenshots/multiple_choice_question.png]]
 
 OpenCode includes a question tool that models can use to ask clarifying
 questions of the user. If the session buffer is active when the questions are
 raised, it will immediately prompt each question with options for responses. The
 options the model provides are suggestions, feel free to type your own answer.
 If the session buffer or frame is not active at the time, then emacs will notify
-that a question is awaiting response, as seen in the video. You can switch to
-the session buffer that most recently raised a notification with
-=opencode-visit-last-idle=, and as soon as you visit the buffer it will prompt the
-questions.
+that a question is awaiting response. You can switch to the session buffer that
+most recently raised a notification with =opencode-visit-last-idle=, and as soon
+as you visit the buffer it will prompt the questions. For single choice
+questions, selecting an option will immediately submit that response. For
+multiple choice questions, select the options you want and then press =C-c C-c= to
+submit.
 
 * Security
 Opencode's permission system, especially for bash, is not nearly as fine-grained

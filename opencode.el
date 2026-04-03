@@ -283,7 +283,7 @@ Or nil to disable logging.")
        :urgency (pcase .variant
                   ((or "error" "warning" )'critical)
                   ((or "info" "success") 'normal))
-       :timeout .duration
+       :timeout (or .duration 5000)
        :replaces-id 5647
        :app-icon 'none))
      ((eq system-type 'darwin)
@@ -383,8 +383,7 @@ Args are PERMISSION-ID, SESSION-ID, and the TYPE and TITLE of the request."
                                      (alist-get 'parentID session))
                               (opencode--toast-show `((title . "OpenCode Finished")
                                                       (message . ,(alist-get 'title session))
-                                                      (variant . "success")
-                                                      (timeout . 1000)))
+                                                      (variant . "success")))
                               (push session opencode-alerted-sessions)))))
           (session.status (opencode-session--set-status .sessionID .status.type))
           ((session.created session.updated session.deleted)
@@ -415,8 +414,7 @@ Args are PERMISSION-ID, SESSION-ID, and the TYPE and TITLE of the request."
                                        (message . ,(alist-get
                                                     'question
                                                     (aref .questions 0)))
-                                       (variant . "info")
-                                       (timeout . 1000)))
+                                       (variant . "info")))
                (opencode-api-session (.sessionID)
                    session
                  (push session opencode-alerted-sessions))

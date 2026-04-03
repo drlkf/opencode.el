@@ -385,7 +385,18 @@ Args are PERMISSION-ID, SESSION-ID, and the TYPE and TITLE of the request."
                                                       (message . ,(alist-get 'title session))
                                                       (variant . "success")))
                               (push session opencode-alerted-sessions)))))
-          (session.status (opencode-session--set-status .sessionID .status.type))
+          (session.status (pcase .status.type
+                            ((or "busy" "idle")
+                             (opencode-session--set-status .sessionID .status.type))
+                            ("retry"
+                             (opencode-api-session (.sessionID)
+                                 session
+                               (opencode--toast-show `((title . ,(concat "OpenCode: "
+                                                                  (alist-get 'title session)))
+                                                       (message . ,(format "%s\n\nRetry #%d"
+                                                                    .status.message
+                                                                    .status.attempt))
+                                                       (variant . "warning")))))))
           ((session.created session.updated session.deleted)
            (dolist (buffer (map-elt opencode--session-control-buffers .info.projectID))
              (when (buffer-live-p buffer)

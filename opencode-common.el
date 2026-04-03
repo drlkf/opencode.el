@@ -118,7 +118,8 @@ annotation to show."
                                 (length (car candidate)))
                               candidates)))
          (candidate-results (make-hash-table :test 'equal))
-         (candidates (cl-loop for (name return-value annotation) in candidates
+         (candidates (cl-loop for (name return-value maybe-annotation) in candidates
+                              for annotation = (or maybe-annotation "")
                               for candidate = (concat name
                                                       (propertize annotation 'invisible t))
                               do (puthash candidate return-value candidate-results)

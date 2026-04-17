@@ -26,6 +26,8 @@
 
 (require 'cl-lib)
 (require 'map)
+(require 'markdown-mode)
+(require 'project)
 (require 'savehist)
 
 (defvar opencode-last-model '((providerID . "opencode")
@@ -146,6 +148,27 @@ annotation to show."
    (cl-loop for q being the elements of questions
             for question-text = (alist-get 'question q)
             collect (concat "❓ " question-text "\n"))))
+
+(defun opencode--relative-path-for-display (file)
+  "Return FILE relative to project root when possible."
+  (when file
+    (let* ((project (project-current))
+           (root (if project
+                     (project-root project)
+                   default-directory)))
+      (if (and (file-name-absolute-p file)
+               root
+               (file-in-directory-p file root))
+          (file-relative-name file root)
+        file))))
+
+(defun opencode--render-markdown (string)
+  "Render STRING in `gfm-view-mode'."
+  (with-temp-buffer
+    (insert string)
+    (delay-mode-hooks (gfm-view-mode))
+    (font-lock-ensure)
+    (buffer-string)))
 
 (provide 'opencode-common)
 ;;; opencode-common.el ends here

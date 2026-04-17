@@ -25,13 +25,12 @@
 ;;; Code:
 
 (require 'comint)
-(require 'diff)
-(require 'diff-mode)
 (require 'magit)
 (require 'mailcap)
 (require 'markdown-mode)
 (require 'opencode-api)
 (require 'opencode-common)
+(require 'opencode-format-tool-calls)
 (require 'project)
 (require 'vtable)
 
@@ -440,10 +439,7 @@ Assign the overlay EXTRA-PROP with EXTRA-VALUE."
                                              (project-files project)
                                              nil
                                              'file-name-history)))
-          (project-root (project-root project))
-          (relative-name (if (file-in-directory-p file project-root)
-                             (file-relative-name file project-root)
-                           file))
+          (relative-name (opencode--relative-path-for-display file))
           (url (concat "file://" file)))
      (push `((type . file)
              (filename . ,relative-name)
@@ -669,14 +665,6 @@ TYPE is text|reasoning|tool|step-finish"
     (overlay-put ov 'line-prefix margin)
     (overlay-put ov 'wrap-prefix margin)))
 
-(defun opencode--render-markdown (string)
-  "Render STRING in `gfm-view-mode'."
-  (with-temp-buffer
-    (insert string)
-    (delay-mode-hooks (gfm-view-mode))
-    (font-lock-ensure)
-    (buffer-string)))
-
 (defun opencode--render-input-markdown (input)
   "Rerender comint INPUT as markdown."
   (let ((inhibit-read-only t))
@@ -702,102 +690,6 @@ TYPE is text|reasoning|tool|step-finish"
                            opencode-session-agents)))
       (setf opencode-session-agent agent)
       (setf (alist-get 'model agent) .info.model))))
-
-(defun opencode--format-edit-diff (old-string new-string)
-  "Generate diff output comparing OLD-STRING to NEW-STRING."
-  (with-temp-buffer
-    (let ((old-buf (current-buffer)))
-      (insert old-string)
-      (insert "\n")
-      (with-temp-buffer
-        (let ((new-buf (current-buffer)))
-          (insert new-string)
-          (insert "\n")
-          (with-temp-buffer
-            (let ((diff-buf (current-buffer))
-                  (inhibit-read-only t))
-              ;; Run diff synchronously into this temp buffer
-              (diff-no-select old-buf new-buf nil t diff-buf)
-              (delay-mode-hooks (diff-mode))
-              (font-lock-ensure)
-              ;; Delete first 3 lines (diff command, ---, +++)
-              (goto-char (point-min))
-              (forward-line 3)
-              (delete-region (point-min) (point))
-              ;; Delete last 2 lines (diff finished timestamp)
-              (goto-char (point-max))
-              (forward-line -2)
-              (delete-region (point) (point-max))
-              ;; Return the diff content
-              (buffer-string))))))))
-
-(defun opencode--render-todos (todos)
-  "Render TODOS as markdown todo list."
-  (opencode--render-markdown
-   (mapconcat
-    (lambda (todo)
-      (let-alist todo
-        (format "%s %s"
-                (pcase .status
-                  ("pending" "📌")
-                  ("in_progress" "▶")
-                  ("completed" "✅")
-                  ("cancelled" "❌")
-                  (_ " "))
-                .content)))
-    todos
-    "\n")))
-
-(defun opencode--format-tool-call (tool input)
-  "Format TOOL call with INPUT arguments for display."
-  (let-alist input
-    (when .filePath
-      (setf .filePath (file-relative-name .filePath default-directory)))
-    (pcase tool
-      ("edit"
-       (concat "edit " .filePath ":\n"
-               (opencode--format-edit-diff .oldString .newString)
-               "\n"))
-      ("read"
-       (if (and .offset .limit)
-           (format "read %s [offset=%d, limit=%d]\n\n"
-                   .filePath .offset .limit)
-         (format "read %s\n\n" .filePath)))
-      ("grep"
-       (concat
-        (format "grep \"%s\"" .pattern)
-        (when (or .include .path)
-          (format " in %s" (or .include .path)))
-        "\n\n"))
-      ("bash"
-       (format "# %s\n$ %s\n\n"
-               .description
-               .command))
-      ("websearch"
-       (format "websearch \"%s\"\n\n" .query))
-      ("call_omo_agent"
-       (format "call_omo_agent: %s\n\n%s\n\n" .description .prompt))
-      ("glob"
-       (if .path
-           (format "glob \"%s\" in %s\n\n"
-                   .pattern
-                   (file-relative-name .path default-directory))
-         (format "glob \"%s\"\n\n" .pattern)))
-      ("todowrite"
-       (concat (opencode--render-todos .todos) "\n\n"))
-      ("question"
-       (concat (opencode--format-questions (alist-get 'questions input)) "\n\n"))
-      ((and "task" (guard (string= "explore" .subagent_type)))
-       (format "🔍 Explore: %s\n\n" .description))
-      (_ (if (= 1 (length input))
-             (format "%s %s\n\n" tool (cdar input))
-           ;; Multiple arguments: tool-name, then arg-name: value per line
-           (concat tool " ["
-                   (mapconcat (lambda (pair)
-                                (format "%s=%s" (car pair) (cdr pair)))
-                              input
-                              ", ")
-                   "]\n\n"))))))
 
 (defun opencode--insert-block-with-margin (text face)
   "Insert TEXT with FACE margin highlight."
@@ -838,8 +730,8 @@ TYPE is text|reasoning|tool|step-finish"
     (opencode--insert-block-with-margin
      (opencode--format-tool-call tool input)
      'opencode-tool-margin-highlight)
-    ;; For edit tools, apply diff hunk refinement after insertion
-    (when (string= tool "edit")
+    ;; For diff-like tools, apply diff hunk refinement after insertion.
+    (when (member tool '("edit" "apply_patch"))
       (opencode--refine-diff-hunks start))))
 
 (cl-defun opencode-open-session (session &key (pop-to-buffer t))

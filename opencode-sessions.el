@@ -714,7 +714,12 @@ TYPE is text|reasoning|tool|step-finish"
       (condition-case nil
           (while (>= (point) start)
             (diff-refine-hunk)
-            (diff-hunk-prev))
+            (diff-hunk-prev)
+            ;; Hide the diff hunk headers
+            (add-text-properties (line-beginning-position)
+                               (min (point-max)
+                                    (1+ (line-end-position)))
+                               '(invisible t)))
         (error nil)))))
 
 (defun opencode--session-process-position ()

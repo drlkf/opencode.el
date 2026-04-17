@@ -202,7 +202,6 @@ if `opencode-auto-start-server' is non-nil."
 
 (defun opencode-open-project (directory)
   "Open sessions control buffer for DIRECTORY."
-  (setq directory (file-name-as-directory directory))
   (opencode-process-events directory)
   (let ((buffer-name (format "*OpenCode Sessions in %s*" directory)))
     (unless (get-buffer buffer-name)
@@ -461,7 +460,6 @@ Without it will use a default title and then automatically generate one."
   (interactive
    (list (when current-prefix-arg
            (read-string "Title: "))))
-  (setq default-directory (expand-file-name default-directory))
   (opencode-autoconnect
    (lambda ()
      (opencode-process-events default-directory)
@@ -536,6 +534,7 @@ If point is before the first prompt, creates a new session instead."
 
 (defun opencode-process-events (directory)
   "Connect to the opencode event stream and process all events for DIRECTORY."
+  (setf directory (file-name-as-directory (file-truename directory)))
   (unless (rassoc directory opencode--event-subscriptions)
     (let ((process
            (plz-media-type-request

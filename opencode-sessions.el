@@ -109,6 +109,9 @@ When non-nil, contains a cons cell (QUESTION-ID . QUESTIONS-VECTOR).")
   (make-hash-table :test 'equal)
   "A mapping of session ids to Emacs buffers.")
 
+(defvar-local opencode--tool-calls-displayed nil
+  "A hash table containing all callID that have already been displayed.")
+
 (defvar opencode-assistant-messages
   nil
   "An alist mapping all currently updating assistant message ids, to start pos.")
@@ -621,12 +624,15 @@ TYPE is text|reasoning|tool|step-finish"
                (maybe-render-last-and-update-message-parts 'text)
                (opencode--output delta))
               ("tool" (maybe-render-last-and-update-message-parts 'tool)
-               (when (and (string= .state.status "running")
-                          ;; only when it first starts running
-                          (null .state.metadata)
-                          ;; skip the question tool, handled by question.asked event
-                          (not (string= .tool "question")))
-                 (opencode--insert-tool-block .tool .state.input))
+               (when (and
+                      ;; only when it first starts running
+                      (string= .state.status "running")
+                      ;; avoid duplicate display
+                      (not (gethash .callID opencode--tool-calls-displayed))
+                      ;; skip the question tool, handled by question.asked event
+                      (not (string= .tool "question")))
+                 (opencode--insert-tool-block .tool .state.input)
+                 (puthash .callID t opencode--tool-calls-displayed))
                (when (and (string= .state.status "completed")
                           opencode-show-tool-output
                           .state.output)
@@ -755,6 +761,7 @@ POP-TO-BUFFER controls whether to pop to or switch to the session buffer."
                 opencode-last-session-buffer buffer
                 default-directory .directory
                 opencode-session-variant variant
+                opencode--tool-calls-displayed (make-hash-table :test 'equal)
                 opencode-session-agents (mapcar (lambda (agent)
                                                   (unless (alist-get 'model agent)
                                                     (setf (alist-get 'model agent)

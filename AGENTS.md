@@ -4,8 +4,9 @@ Emacs frontend for OpenCode LLM coding assistant server.
 
 # Tool use
 
-Prefer the tools from elisp-dev-mcp whenever you want information about a
-function or variable.
+Interact with the user's emacs process to perform introspection, find
+information about functions, values of variables etc. Use it to run and verify
+that code you write is working correctly.
 
 ## Build & Verification Commands
 

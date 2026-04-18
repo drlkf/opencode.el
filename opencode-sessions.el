@@ -50,12 +50,20 @@
 (define-derived-mode opencode-session-control-mode special-mode "Sessions"
   "Opencode session control panel mode.")
 
+(defun opencode--tab-dispatch ()
+  "Cycle session agent, or move to next button if point is on one."
+  (interactive)
+  (if (button-at (point))
+      (forward-button 1)
+    (call-interactively #'opencode-cycle-session-agent)))
+
 (defvar opencode-session-mode-map
   (define-keymap
     "C-c C-y" 'opencode-yank-code-block
     "C-c C-c" 'opencode-abort-session
     "C-c x" 'opencode-kill-session
-    "TAB" 'opencode-cycle-session-agent
+    "<backtab>" 'backward-button
+    "TAB" 'opencode--tab-dispatch
     "C-c r" 'opencode-rename-session
     "C-c n" 'opencode-new-session
     "C-c l" 'opencode-select-session
@@ -564,7 +572,8 @@ Otherwise prompt for file in current project."
 
 (defun opencode--output (string)
   "Output STRING as comint output."
-  (comint-output-filter (get-buffer-process (current-buffer)) string))
+  (comint-output-filter (get-buffer-process (current-buffer))
+                        (opencode--buttonize-file-references string)))
 
 (defun opencode-insert-logo ()
   "Insert the opencode logo."

@@ -26,6 +26,7 @@ of advantages over the official TUI:
    - add selected region to context with =opencode-add-region=
    - integration with magit is possible, =opencode-new-worktree= will create a new
      git branch and worktree for the current project, and start an opencode session in it
+   - file:line references in LLM output are turned into clickable buttons
    - use =dabbrev-expand= in the chat window to complete long variable or function
      names from your code buffers
 

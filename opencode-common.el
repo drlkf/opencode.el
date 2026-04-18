@@ -24,6 +24,7 @@
 
 ;;; Code:
 
+(require 'button)
 (require 'cl-lib)
 (require 'map)
 (require 'markdown-mode)
@@ -161,6 +162,56 @@ annotation to show."
                (file-in-directory-p file root))
           (file-relative-name file root)
         file))))
+
+(defun opencode--resolve-file-reference (file)
+  "Return absolute path for FILE, or nil if no file exists."
+  (let ((project (project-current)))
+    (seq-find (lambda (candidate)
+                (and candidate
+                     (file-exists-p candidate)
+                     (not (file-directory-p candidate))))
+              (delete-dups
+               (delq nil
+                     (list (and (file-name-absolute-p file) file)
+                           (when project
+                             (expand-file-name file (project-root project)))
+                           (expand-file-name file default-directory)))))))
+
+(defun opencode--visit-file-location (location)
+  "Open LOCATION in another window."
+  (let ((file (car location))
+        (line (cdr location)))
+    (find-file-other-window file)
+    (goto-char (point-min))
+    (forward-line (1- line))
+    (recenter)))
+
+(defun opencode--buttonize-file-references (string)
+  "Return STRING with existing file references turned into buttons."
+  (let ((start 0)
+        (regexp "\\(`?\\)\\([[:alnum:]._~/][[:alnum:]@%_./~+-]*\\):\\([0-9]+\\)\\1")
+        parts)
+    (while (string-match regexp string start)
+      (let* ((match-beg (match-beginning 0))
+             (match-end (match-end 0))
+             (file (match-string 2 string))
+             (line (string-to-number (match-string 3 string)))
+             (path (opencode--resolve-file-reference file)))
+        (push (substring string start match-beg) parts)
+        (push (if path
+                  (make-text-button
+                   (substring string match-beg match-end)
+                   nil
+                   'action #'opencode--visit-file-location
+                   'button-data (cons path line)
+                   'follow-link t
+                   'help-echo (format "Open %s:%d in another window" file line)
+                   'mouse-face 'highlight)
+                (substring string match-beg match-end))
+              parts)
+        (setq start match-end)))
+    (push (substring string start) parts)
+    (apply #'concat (nreverse parts))))
 
 (defun opencode--render-markdown (string)
   "Render STRING in `gfm-view-mode'."

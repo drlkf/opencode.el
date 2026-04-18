@@ -745,6 +745,10 @@ TYPE is text|reasoning|tool|step-finish"
     (when (member tool '("edit" "apply_patch"))
       (opencode--refine-diff-hunks start))))
 
+(defun opencode-open-session-same-window (session)
+  "Open SESSION using the current window."
+  (opencode-open-session session :pop-to-buffer nil))
+
 (cl-defun opencode-open-session (session &key (pop-to-buffer t))
   "Open comint based shell for SESSION.
 POP-TO-BUFFER controls whether to pop to or switch to the session buffer."
@@ -897,8 +901,8 @@ Returns nil if point is before the first prompt."
                       "R" opencode-rename-session
                       "s" opencode-share-session
                       "u" opencode-unshare-session
-                      "RET" opencode-open-session
-                      "o" opencode-open-session)
+                      "RET" opencode-open-session-same-window
+                      "o" opencode-open-session-same-window)
            :getter (lambda (object column vtable)
                      (let-alist object
                        (pcase (vtable-column vtable column)

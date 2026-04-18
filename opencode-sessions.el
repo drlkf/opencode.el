@@ -753,63 +753,66 @@ TYPE is text|reasoning|tool|step-finish"
   "Open comint based shell for SESSION.
 POP-TO-BUFFER controls whether to pop to or switch to the session buffer."
   (let-alist session
-    (if (buffer-live-p (gethash .id opencode-session-buffers))
-        (pop-to-buffer (gethash .id opencode-session-buffers))
-      (let ((buffer (generate-new-buffer (format "*OpenCode: %s*" .title)))
-            (agent (copy-tree opencode-session-agent))
-            (agents (copy-tree opencode-session-agents))
-            (variant opencode-session-variant))
-        (with-current-buffer buffer
-          (opencode-session-mode)
-          (setq opencode-session-id .id
-                opencode-last-session-buffer buffer
-                default-directory .directory
-                opencode-session-variant variant
-                opencode--tool-calls-displayed (make-hash-table :test 'equal)
-                opencode-session-agents (mapcar (lambda (agent)
-                                                  (unless (alist-get 'model agent)
-                                                    (setf (alist-get 'model agent)
-                                                          opencode-last-model))
-                                                  agent)
-                                                (or agents
-                                                    (copy-tree opencode-agents)))
-                opencode-session-agent (or agent (car opencode-session-agents)))
-          (puthash .id buffer opencode-session-buffers)
-          (let ((proc (start-process "dummy" buffer nil)))
-            (set-process-query-on-exit-flag proc nil)
-            (add-hook 'kill-buffer-hook
-                      (lambda ()
-                        (when (get-buffer-process (current-buffer))
-                          (delete-process)))
-                      nil t)
-            (opencode-insert-logo)
-            (opencode-api-session-messages (.id)
-                messages
-              (dolist (message messages)
-                (let-alist (alist-get 'info message)
-                  (pcase .role
-                    ("user" (opencode--replay-user-request message))
-                    ("assistant"
-                     (dolist (part (alist-get 'parts message))
-                       (let-alist part
-                         (if (string= .type "tool")
-                             (opencode--insert-tool-block .tool .state.input)
-                           (when .text
-                             (let ((text (opencode--render-markdown (string-trim .text))))
-                               (unless (string-empty-p text)
-                                 (pcase .type
-                                   ("text" (opencode--output text))
-                                   ("reasoning"
-                                    (opencode--insert-reasoning-block
-                                     text)))
-                                 (opencode--output "\n\n")))))))
-                     (setq opencode-session-tokens
-                           (+ .tokens.input .tokens.output .tokens.reasoning
-                              .tokens.cache.read .tokens.cache.write))))))
-              (opencode--show-prompt)))
+    (let ((old-buffer (gethash .id opencode-session-buffers)))
+      (if (buffer-live-p old-buffer)
           (if pop-to-buffer
-              (pop-to-buffer buffer)
-            (switch-to-buffer buffer)))))))
+              (pop-to-buffer old-buffer)
+            (switch-to-buffer old-buffer))
+        (let ((buffer (generate-new-buffer (format "*OpenCode: %s*" .title)))
+              (agent (copy-tree opencode-session-agent))
+              (agents (copy-tree opencode-session-agents))
+              (variant opencode-session-variant))
+          (with-current-buffer buffer
+            (opencode-session-mode)
+            (setq opencode-session-id .id
+                  opencode-last-session-buffer buffer
+                  default-directory .directory
+                  opencode-session-variant variant
+                  opencode--tool-calls-displayed (make-hash-table :test 'equal)
+                  opencode-session-agents (mapcar (lambda (agent)
+                                                    (unless (alist-get 'model agent)
+                                                      (setf (alist-get 'model agent)
+                                                            opencode-last-model))
+                                                    agent)
+                                                  (or agents
+                                                      (copy-tree opencode-agents)))
+                  opencode-session-agent (or agent (car opencode-session-agents)))
+            (puthash .id buffer opencode-session-buffers)
+            (let ((proc (start-process "dummy" buffer nil)))
+              (set-process-query-on-exit-flag proc nil)
+              (add-hook 'kill-buffer-hook
+                        (lambda ()
+                          (when (get-buffer-process (current-buffer))
+                            (delete-process)))
+                        nil t)
+              (opencode-insert-logo)
+              (opencode-api-session-messages (.id)
+                  messages
+                (dolist (message messages)
+                  (let-alist (alist-get 'info message)
+                    (pcase .role
+                      ("user" (opencode--replay-user-request message))
+                      ("assistant"
+                       (dolist (part (alist-get 'parts message))
+                         (let-alist part
+                           (if (string= .type "tool")
+                               (opencode--insert-tool-block .tool .state.input)
+                             (when .text
+                               (let ((text (opencode--render-markdown (string-trim .text))))
+                                 (unless (string-empty-p text)
+                                   (pcase .type
+                                     ("text" (opencode--output text))
+                                     ("reasoning"
+                                      (opencode--insert-reasoning-block
+                                       text)))
+                                   (opencode--output "\n\n")))))))
+                       (setq opencode-session-tokens
+                             (+ .tokens.input .tokens.output .tokens.reasoning
+                                .tokens.cache.read .tokens.cache.write))))))
+                (opencode--show-prompt)))
+            (if pop-to-buffer
+                (pop-to-buffer buffer)
+              (switch-to-buffer buffer))))))))
 
 (defun opencode--current-message-number ()
   "Return the 0-indexed message number at point.

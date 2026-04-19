@@ -672,8 +672,8 @@ TYPE is text|reasoning|tool|step-finish"
                       (not (gethash .callID opencode--tool-calls-displayed))
                       ;; skip the question tool, handled by question.asked event
                       (not (string= .tool "question")))
-                 (opencode--insert-tool-block .tool .state.input)
-                 (puthash .callID t opencode--tool-calls-displayed))
+                 (puthash .callID t opencode--tool-calls-displayed)
+                 (opencode--insert-tool-block .tool .state.input))
                (when (and (string= .state.status "completed")
                           opencode-show-tool-output
                           .state.output)

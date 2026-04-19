@@ -413,20 +413,23 @@ Each element is (display-name . (provider-id provider-name model-id))."
       (delete-region ov-start ov-end)
       (delete-overlay overlay))))
 
+(defun opencode--in-label-p ()
+  "Return non-nil if point is inside (or at the edge of) a label overlay."
+  (cl-loop for ov in (overlays-at (point))
+           thereis (overlay-get ov 'opencode-label)))
+
 (defun opencode--insert-intangible (name extra-prop extra-value)
   "Insert an intangible label with NAME (buffer or filename).
 Assign the overlay EXTRA-PROP with EXTRA-VALUE."
   (let* ((start (point))
          (end (progn (insert "`")
-                     (insert (propertize name
-                                         'cursor-intangible t))
-                     (insert (propertize "`"
-                                         'rear-nonsticky t))
+                     (insert (propertize name 'cursor-intangible t))
+                     (insert (propertize "`" 'rear-nonsticky t))
                      (point)))
          (ov (make-overlay start end)))
+    (overlay-put ov 'opencode-label t)
     (overlay-put ov extra-prop extra-value)
-    (overlay-put ov 'display (propertize name
-                                         'face 'markdown-inline-code-face))
+    (overlay-put ov 'display (propertize name 'face 'markdown-inline-code-face))
     (overlay-put ov 'modification-hooks '(opencode--remove-label))
     ov))
 
@@ -457,7 +460,8 @@ Assign the overlay EXTRA-PROP with EXTRA-VALUE."
              (mime . ,(opencode--mimetype file))
              (url . ,url))
            opencode--extra-parts)
-     (opencode--insert-intangible (concat relative-name " ") 'file-url url))))
+     (opencode--insert-intangible relative-name 'file-url url)
+     (insert " "))))
 
 (defun opencode-add-file-dwim ()
   "If in Dired, add all marked files, or file at point if none marked.
@@ -504,9 +508,10 @@ Otherwise prompt for file in current project."
                  (metadata . ((region-id . ,region-id))))
                opencode--extra-parts)
          (opencode--insert-intangible
-          (format "region: %s "
+          (format "region: %s"
                   (truncate-string-to-width region 24 0 nil (truncate-string-ellipsis)))
-          'region-id region-id)))
+          'region-id region-id)
+         (insert " ")))
     (user-error "No active region")))
 
 (defun opencode--send-input (_proc string)
@@ -789,6 +794,7 @@ POP-TO-BUFFER controls whether to pop to or switch to the session buffer."
                                                   (or agents
                                                       (copy-tree opencode-agents)))
                   opencode-session-agent (or agent (car opencode-session-agents)))
+            (add-hook 'fill-nobreak-predicate #'opencode--in-label-p nil t)
             (puthash .id buffer opencode-session-buffers)
             (let ((proc (start-process "dummy" buffer nil)))
               (set-process-query-on-exit-flag proc nil)

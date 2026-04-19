@@ -411,7 +411,7 @@ Args are PERMISSION-ID, SESSION-ID, and the TYPE and TITLE of the request."
           (message.part.delta (opencode-session--update-part properties .delta
                                                              (gethash .partID opencode-part-type)))
           (message.updated (opencode-session--message-updated .info))
-          (permission.updated (opencode--permission-request .id .sessionID .type .title))
+          (permission.asked (opencode--permission-request .id .sessionID .permission .patterns))
           (question.asked
            (let ((buffer (gethash .sessionID opencode-session-buffers)))
              ;; Output questions to the buffer

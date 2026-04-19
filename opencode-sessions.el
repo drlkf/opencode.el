@@ -194,7 +194,9 @@ POP-TO-BUFFER controls whether to pop to or switch to the session buffer."
                                  session
                                  (opencode--format-time-ago
                                   (opencode--time-ago
-                                   session 'updated))))))
+                                   session 'updated))
+                                 (opencode--time-ago
+                                  session 'updated)))))
        :pop-to-buffer pop-to-buffer)
     (message no-sessions-message)))
 

@@ -79,7 +79,8 @@
     "C-c M" 'opencode-toggle-mcp
     "C-c F" 'opencode-fork-session
     "C-c R" 'opencode-revert-message
-    "/" 'opencode-insert-slash-command))
+    "/" 'opencode-insert-slash-command
+    "@" 'opencode-add-subagent))
 
 (with-eval-after-load 'evil
   (declare-function evil-define-key* "evil-core")
@@ -88,6 +89,7 @@
     "n" 'opencode-new-session
     "gv" 'opencode-session-control-toggle-verbose)
   (evil-define-key* 'insert opencode-session-mode-map
+    "@" 'opencode-add-subagent
     "/" 'opencode-insert-slash-command))
 
 (defvar-local opencode-session-id nil
@@ -394,12 +396,13 @@ Each element is (display-name . (provider-id provider-name model-id))."
              "text/plain"))))
 
 (defun opencode--remove-label (overlay after _beg _end &optional _len)
-  "Called AFTER deleting OVERLAY, remove the associated file from context."
+  "Called AFTER deleting OVERLAY, remove the associated part from context."
   (when (and after
              (not (eq this-command 'comint-send-input)))
     (let ((file-url (overlay-get overlay 'file-url))
           (buffer-name (overlay-get overlay 'buffer-name))
           (region-id (overlay-get overlay 'region-id))
+          (agent-name (overlay-get overlay 'agent-name))
           (ov-start (overlay-start overlay))
           (ov-end (overlay-end overlay)))
       (setq opencode--extra-parts
@@ -408,7 +411,8 @@ Each element is (display-name . (provider-id provider-name model-id))."
                             (cond
                              (file-url (string= file-url .url))
                              (buffer-name (string= buffer-name .metadata.buffer-name))
-                             (region-id (eq region-id .metadata.region-id)))))
+                             (region-id (eq region-id .metadata.region-id))
+                             (agent-name (string= agent-name .name)))))
                         opencode--extra-parts))
       (delete-region ov-start ov-end)
       (delete-overlay overlay))))
@@ -513,6 +517,26 @@ Otherwise prompt for file in current project."
           'region-id region-id)
          (insert " ")))
     (user-error "No active region")))
+
+(defun opencode-add-subagent ()
+  "Insert a subagent mention into the current input."
+  (interactive)
+  (if (comint-after-pmark-p)
+      (let ((subagents (cl-loop for agent in opencode-agents
+                                when (string= "subagent" (alist-get 'mode agent))
+                                collect agent)))
+        (unless subagents
+          (user-error "No subagents available"))
+        (let ((name (opencode--annotated-completion
+                     "Subagent: "
+                     (cl-loop for agent in subagents
+                              collect (let-alist agent
+                                        (list .name .name .description))))))
+          (push `((type . "agent")
+                  (name . ,name))
+                opencode--extra-parts)
+          (opencode--insert-intangible (concat "@" name) 'agent-name name)))
+    (call-interactively #'self-insert-command)))
 
 (defun opencode--send-input (_proc string)
   "Send STRING as input to current opencode session."

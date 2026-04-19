@@ -37,7 +37,7 @@
 (add-to-list 'savehist-additional-variables 'opencode-last-model)
 
 (defvar opencode-agents nil
-  "List of available primary agents (excluding sub-agents and hidden agents).")
+  "List of available agents excluding hidden agents.")
 
 (defvar opencode-slash-commands nil
   "List of available slash commands.")

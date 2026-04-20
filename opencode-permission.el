@@ -27,6 +27,9 @@
 ;;
 ;; Activated when `opencode-transient-permission' is non-nil.
 ;; When nil, the fallback is a plain `x-popup-dialog'.
+;;
+;; Dismissing the transient without responding (e.g. q or C-g) leaves
+;; the request pending.  Re-open it later with `opencode-respond-permission'.
 
 ;;; Code:
 
@@ -47,25 +50,40 @@ Called with one of \"once\", \"always\", or \"reject\".")
 (defvar opencode-permission--always-patterns nil
   "The glob patterns approved by accepting always, for display in the transient.")
 
+(defvar opencode-permission--handled nil
+  "Non-nil when a response has been sent for the current transient.
+Prevents double-handling if the transient exit hook fires after a suffix.")
+
 ;;; Suffix commands
 
 (transient-define-suffix opencode-permission--do-accept ()
   "Accept the permission request (once)."
   :transient nil
   (interactive)
+  (setq opencode-permission--handled t)
   (funcall opencode-permission--callback "once"))
 
 (transient-define-suffix opencode-permission--do-accept-always ()
   "Accept the permission request permanently."
   :transient nil
   (interactive)
+  (setq opencode-permission--handled t)
   (funcall opencode-permission--callback "always"))
 
 (transient-define-suffix opencode-permission--do-deny ()
   "Deny the permission request."
   :transient nil
   (interactive)
+  (setq opencode-permission--handled t)
   (funcall opencode-permission--callback "reject"))
+
+;;; Transient exit hook
+
+(defun opencode-permission--on-exit ()
+  "Clean up the exit hook when the transient is dismissed.
+Dismissing without responding leaves the permission pending so the
+user can re-open it later with \\[opencode-respond-permission]."
+  (remove-hook 'transient-exit-hook #'opencode-permission--on-exit))
 
 ;;; Transient prefix
 
@@ -93,7 +111,9 @@ CALLBACK is called with one of \"once\", \"always\", or \"reject\"."
   (setq opencode-permission--type type
         opencode-permission--title title
         opencode-permission--always-patterns always-patterns
-        opencode-permission--callback callback)
+        opencode-permission--callback callback
+        opencode-permission--handled nil)
+  (add-hook 'transient-exit-hook #'opencode-permission--on-exit)
   (opencode-permission--transient))
 
 (provide 'opencode-permission)

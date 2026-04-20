@@ -174,6 +174,7 @@ body when it normally would (POST PATCH)."
      (post sync-message "/session/%s/message")
      (post send-message "/session/%s/prompt_async")
      (message-details "/session/%s/message/%s")
+     (delete delete-message "/session/%s/message/%s")
      (sessions "/session")
      (sessions-status "/session/status")
      (post create-session "/session")

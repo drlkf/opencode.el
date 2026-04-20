@@ -522,6 +522,24 @@ If point is before the first prompt, creates a new session instead."
              "Failed to revert message")))
       (user-error "No user message at point"))))
 
+(defun opencode-delete-message ()
+  "Delete the message at point from the current session."
+  (interactive)
+  (unless opencode-session-id
+    (user-error "Not in an opencode session buffer"))
+  (opencode--current-message-exchange (user-id assistant-id)
+    (if (and user-id assistant-id)
+        (opencode-api-delete-message (opencode-session-id assistant-id)
+            assistant-result
+          (unless assistant-result
+            (error "Failed to delete assistant message"))
+          (opencode-api-delete-message (opencode-session-id user-id)
+              user-result
+            (unless user-result
+              (error "Failed to delete user message"))
+            (opencode--delete-message-at-point)))
+      (user-error "No message with assistant response at point"))))
+
 (defun opencode-unrevert-all ()
   "Unrevert all reverted messages in the current session."
   (interactive)

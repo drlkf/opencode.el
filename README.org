@@ -137,7 +137,7 @@ These colors can be configured through the =opencode-*-margin-highlight= faces.
 |  =C-c r=  | rename this session                                                                                                        |
 |  =C-c n=  | start a new session in the same project                                                                                    |
 |  =C-c c=  | fuzzy select a child session to open - children are all subagent  sessions spawned by this session                         |
-|  =C-c l=  | list and select from all sessions in the same project                                                      |
+|  =C-c l=  | list and select from all sessions in the same project                                                                      |
 |  =C-c p=  | open parent session - when in a subagent session, open the session that spawned it                                         |
 |  =C-c f=  | select a file to add to context                                                                                            |
 |  =C-c b=  | select a buffer to add to context                                                                                          |
@@ -148,6 +148,7 @@ These colors can be configured through the =opencode-*-margin-highlight= faces.
 |  =C-c v=  | select model variant                                                                                                       |
 |  =C-c M=  | select an MCP to toggle                                                                                                    |
 |  =C-c F=  | fork session from message at point - use this when a model responds badly to avoid polluting context with the bad response |
+|  =C-c D=  | delete a message (user prompt and assistant response) from context                                                         |
 |  =C-c R=  | revert all edits done by this session after the message at point                                                           |
 |    =/=    | when at the start of a user prompt, select a slash command to run                                                          |
 

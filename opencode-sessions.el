@@ -78,6 +78,7 @@
     "C-c v" 'opencode-select-variant
     "C-c M" 'opencode-toggle-mcp
     "C-c F" 'opencode-fork-session
+    "C-c D" 'opencode-delete-message
     "C-c R" 'opencode-revert-message
     "/" 'opencode-insert-slash-command
     "@" 'opencode-add-subagent))
@@ -891,16 +892,53 @@ Returns nil if point is before the first prompt."
 (defmacro opencode--current-message-id (result &rest body)
   "Run BODY with RESULT as the message id of the user message at point."
   (declare (indent defun))
-  `(when-let (message-number (opencode--current-message-number))
-     (opencode-api-session-messages (opencode-session-id)
-         messages
-       ;; Filter to only user messages, then get the Nth one
-       (let* ((user-messages (seq-filter (lambda (msg)
-                                           (string= "user" (map-nested-elt msg '(info role))))
-                                         messages))
-              (message (nth message-number user-messages)))
-         (let ((,result (map-nested-elt message '(info id))))
+  `(opencode--current-message-exchange (,result _assistant-id)
+     ,@body))
+
+(defmacro opencode--current-message-exchange (bindings &rest body)
+  "Run BODY with BINDINGS (user-id assistant-id) bound to the exchange ids at point."
+  (declare (indent defun))
+  (let ((user-id (car bindings))
+        (assistant-id (cadr bindings)))
+    `(when-let (message-number (opencode--current-message-number))
+       (opencode-api-session-messages (opencode-session-id)
+           messages
+         (let* ((user-message-index
+                 (cl-loop for message in messages
+                          for index from 0
+                          when (string= "user" (map-nested-elt message '(info role)))
+                          count t into count
+                          when (= (1- count) message-number)
+                          return index))
+                (user-message (and user-message-index
+                                   (nth user-message-index messages)))
+                (assistant-message (and user-message-index
+                                        (let ((next-message (nth (1+ user-message-index)
+                                                                 messages)))
+                                          (when (string= "assistant"
+                                                         (map-nested-elt next-message
+                                                                         '(info role)))
+                                            next-message))))
+                (,user-id (map-nested-elt user-message '(info id)))
+                (,assistant-id (map-nested-elt assistant-message '(info id))))
            ,@body)))))
+
+(defun opencode--delete-message-at-point ()
+  "Delete the prompt at point and its output from the session buffer."
+  (let ((start (save-excursion
+                 (end-of-line)
+                 (comint-previous-prompt 1)
+                 (line-beginning-position)))
+        (end (save-excursion
+               (end-of-line)
+               (comint-previous-prompt 1)
+               (goto-char (line-beginning-position 2))
+               (if (ignore-errors (comint-next-prompt 1) t)
+                   (line-beginning-position)
+                 (point-max)))))
+    (let ((inhibit-read-only t))
+      (remove-overlays start end)
+      (delete-region start end))))
 
 (defun opencode-rename-session (&optional session)
   "Rename SESSION. If in a session buffer, rename that session."

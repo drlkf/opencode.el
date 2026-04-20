@@ -682,10 +682,7 @@ TYPE is text|reasoning|tool|step-finish"
                       (not (string= .tool "question")))
                  (puthash .callID t opencode--tool-calls-displayed)
                  (opencode--insert-tool-block .tool .state.input))
-               (when (and (string= .state.status "completed")
-                          opencode-show-tool-output
-                          .state.output)
-                 (opencode--output .state.output)))
+               (opencode--maybe-insert-tool-output part))
               ("step-finish"
                (when (string= "stop" .reason)
                  (opencode--render-last-block last-type last-start)
@@ -794,6 +791,18 @@ TYPE is text|reasoning|tool|step-finish"
     (when (member tool '("edit" "apply_patch"))
       (opencode--refine-diff-hunks start))))
 
+(defun opencode--maybe-insert-tool-output (message)
+  "Maybe insert the output from tool call in MESSAGE."
+  (let-alist message
+    (when (and (string= .state.status "completed")
+               (or opencode-show-tool-output
+                   ;; show output for user run shell commands
+                   (and (string= .tool "bash")
+                        (not .state.input.description)))
+               .state.output)
+      (opencode--output .state.output)
+      (opencode--output "\n"))))
+
 (defun opencode-open-session-same-window (session)
   "Open SESSION using the current window."
   (opencode-open-session session :pop-to-buffer nil))
@@ -846,7 +855,9 @@ POP-TO-BUFFER controls whether to pop to or switch to the session buffer."
                        (dolist (part (alist-get 'parts message))
                          (let-alist part
                            (if (string= .type "tool")
-                               (opencode--insert-tool-block .tool .state.input)
+                               (progn
+                                 (opencode--insert-tool-block .tool .state.input)
+                                 (opencode--maybe-insert-tool-output message))
                              (when .text
                                (let ((text (opencode--render-markdown (string-trim .text))))
                                  (unless (string-empty-p text)

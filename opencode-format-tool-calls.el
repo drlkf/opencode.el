@@ -54,9 +54,9 @@
           (format " in %s" (or .include .path)))
         "\n\n"))
       ("bash"
-       (format "# %s\n$ %s\n\n"
-               .description
-               .command))
+       (concat (when .description
+                 (format "# %s\n" .description))
+               (format "$ %s\n\n" .command)))
       ("websearch"
        (format "websearch \"%s\"\n\n" .query))
       ("call_omo_agent"

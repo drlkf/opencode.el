@@ -85,6 +85,16 @@ When nil, `opencode' will only connect to an already running server."
   :type 'boolean
   :group 'opencode)
 
+(defcustom opencode-transient-permission nil
+  "When non-nil, use a transient popup to respond to permission requests.
+The transient offers three choices: accept once, accept always
+(with the glob patterns that will be permanently approved shown in
+the label), or deny.
+
+When nil (the default), a plain `x-popup-dialog' is used instead."
+  :type 'boolean
+  :group 'opencode)
+
 (defvar opencode--process nil
   "Opencode server process when started by Emacs.")
 
@@ -349,17 +359,28 @@ On confirm, replies to the server.  On reject or dismiss, rejects."
 (defun opencode--permission-request (permission-id session-id type title)
   "Respond to permission request from opencode.
 Args are PERMISSION-ID, SESSION-ID, and the TYPE and TITLE of the request."
-  (opencode-api-respond-permission-request (session-id permission-id)
-      `((response . ,(x-popup-dialog
-                      t
-                      `(,(format "OpenCode Permission Request\n%s: %s"
-                                 type title)
-                        ("Accept" . "once")
-                        ("Accept Always" . "always")
-                        ("Deny" . "reject")))))
-      response
-    (unless response
-      (user-error "Response to permission request failed"))))
+  (if opencode-transient-permission
+      (progn
+        (require 'opencode-permission)
+        (opencode-permission--prompt
+         type title nil
+         (lambda (choice)
+           (opencode-api-respond-permission-request (session-id permission-id)
+               `((response . ,choice))
+               response
+             (unless response
+               (user-error "Response to permission request failed"))))))
+    (opencode-api-respond-permission-request (session-id permission-id)
+        `((response . ,(x-popup-dialog
+                        t
+                        `(,(format "OpenCode Permission Request\n%s: %s"
+                                   type title)
+                          ("Accept" . "once")
+                          ("Accept Always" . "always")
+                          ("Deny" . "reject")))))
+        response
+      (unless response
+        (user-error "Response to permission request failed")))))
 
 (defun opencode--handle-message (event)
   "Handle a message EVENT from opencode server."

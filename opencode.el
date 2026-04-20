@@ -332,7 +332,7 @@ Or nil to disable logging.")
 
 (defun opencode--window-selection-change-hook (_frame)
   "Hook to remove session from the alerted sessions list when it's visited.
-Also prompts for pending questions if any."
+Also prompts for pending questions or permissions if any."
   (when opencode-session-id
     (setf opencode-alerted-sessions
           (cl-delete-if (lambda (session)
@@ -344,7 +344,10 @@ Also prompts for pending questions if any."
     (when opencode-session-pending-questions
       (let ((pending opencode-session-pending-questions))
         (setq opencode-session-pending-questions nil)
-        (opencode--prompt-questions (car pending) (cdr pending))))))
+        (opencode--prompt-questions (car pending) (cdr pending))))
+    ;; Handle pending permissions when buffer becomes active
+    (when opencode-session-pending-permission
+      (run-at-time 0 nil #'opencode-respond-permission))))
 
 (add-hook 'window-selection-change-functions 'opencode--window-selection-change-hook)
 
@@ -357,30 +360,85 @@ On confirm, replies to the server.  On reject or dismiss, rejects."
   (opencode-question--prompt question-id questions))
 
 (defun opencode--permission-request (permission-id session-id type title)
-  "Respond to permission request from opencode.
-Args are PERMISSION-ID, SESSION-ID, and the TYPE and TITLE of the request."
-  (if opencode-transient-permission
-      (progn
-        (require 'opencode-permission)
-        (opencode-permission--prompt
-         type title nil
-         (lambda (choice)
-           (opencode-api-respond-permission-request (session-id permission-id)
-               `((response . ,choice))
-               response
-             (unless response
-               (user-error "Response to permission request failed"))))))
+  "Queue a permission request for SESSION-ID and output it to the session buffer.
+PERMISSION-ID identifies the request.  TYPE is the permission kind
+\(e.g. \"bash\") and TITLE is the description (e.g. the command patterns).
+A marker is saved so the response label can be appended to the same line.
+If the session buffer is active, the response prompt is shown immediately."
+  (when-let (buffer (gethash session-id opencode-session-buffers))
+    (with-current-buffer buffer
+      (let ((marker (make-marker)))
+        (when (get-buffer-process buffer)
+          (opencode--maybe-insert-block-spacing)
+          (opencode--output
+           (concat (propertize (format "%s: %s" type title) 'face 'warning)
+                   "\n\n"))
+          ;; Marker points just before the trailing newlines so the
+          ;; response label is appended inline on the same output line.
+          (set-marker marker (- (opencode--session-process-position) 2)))
+        (setq opencode-session-pending-permission
+              (append opencode-session-pending-permission
+                      (list (list :id permission-id
+                                  :session-id session-id
+                                  :type type
+                                  :title title
+                                  :marker marker)))))
+      (when (opencode--buffer-active-p buffer)
+        (run-at-time 0 nil #'opencode-respond-permission)))))
+
+(defun opencode--send-permission-response (choice)
+  "Send CHOICE as the response to the next pending permission request.
+CHOICE is one of \"once\", \"always\", or \"reject\".
+Pops the first request from the queue and appends an accepted/denied
+label to the original output line via its saved marker."
+  (unless opencode-session-pending-permission
+    (user-error "No pending permission request"))
+  (let* ((perm (car opencode-session-pending-permission))
+         (permission-id (plist-get perm :id))
+         (session-id (plist-get perm :session-id))
+         (marker (plist-get perm :marker)))
+    (setq opencode-session-pending-permission
+          (cdr opencode-session-pending-permission))
+    (when (and marker (marker-buffer marker))
+      (let ((label (pcase choice
+                     ("once"   (propertize " [accepted]"        'face 'success))
+                     ("always" (propertize " [accepted always]" 'face 'success))
+                     ("reject" (propertize " [denied]"          'face 'error))))
+            (inhibit-read-only t))
+        (save-excursion
+          (goto-char marker)
+          (insert label))
+        (set-marker marker nil)))
+    (when opencode-session-pending-permission
+      (run-at-time 0 nil #'opencode-respond-permission))
     (opencode-api-respond-permission-request (session-id permission-id)
-        `((response . ,(x-popup-dialog
-                        t
-                        `(,(format "OpenCode Permission Request\n%s: %s"
-                                   type title)
-                          ("Accept" . "once")
-                          ("Accept Always" . "always")
-                          ("Deny" . "reject")))))
+        `((response . ,choice))
         response
       (unless response
         (user-error "Response to permission request failed")))))
+
+(defun opencode-respond-permission ()
+  "Respond to the next pending permission request.
+Uses a transient popup when `opencode-transient-permission' is non-nil,
+otherwise falls back to `x-popup-dialog'."
+  (interactive)
+  (unless opencode-session-pending-permission
+    (user-error "No pending permission request"))
+  (let* ((perm (car opencode-session-pending-permission))
+         (type (plist-get perm :type))
+         (title (plist-get perm :title)))
+    (if opencode-transient-permission
+        (progn
+          (require 'opencode-permission)
+          (opencode-permission--prompt
+           type title nil #'opencode--send-permission-response))
+      (opencode--send-permission-response
+       (x-popup-dialog
+        t
+        `(,(format "OpenCode Permission Request\n%s: %s" type title)
+          ("Accept" . "once")
+          ("Accept Always" . "always")
+          ("Deny" . "reject")))))))
 
 (defun opencode--handle-message (event)
   "Handle a message EVENT from opencode server."
@@ -432,7 +490,10 @@ Args are PERMISSION-ID, SESSION-ID, and the TYPE and TITLE of the request."
           (message.part.delta (opencode-session--update-part properties .delta
                                                              (gethash .partID opencode-part-type)))
           (message.updated (opencode-session--message-updated .info))
-          (permission.asked (opencode--permission-request .id .sessionID .permission .patterns))
+          (permission.asked
+           (opencode--permission-request
+            .id .sessionID .permission
+            (mapconcat #'identity .patterns ", ")))
           (question.asked
            (let ((buffer (gethash .sessionID opencode-session-buffers)))
              ;; Output questions to the buffer

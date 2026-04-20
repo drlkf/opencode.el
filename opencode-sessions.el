@@ -116,6 +116,11 @@ Buffer local so we can configure models per agent per session.")
   "Pending questions for this session buffer, awaiting user response.
 When non-nil, contains a cons cell (QUESTION-ID . QUESTIONS-VECTOR).")
 
+(defvar-local opencode-session-pending-permission nil
+  "Pending permission requests for this session buffer, as a list of plists.
+Each plist has keys :id, :session-id, :type, :title, and :marker.
+Requests are processed FIFO.")
+
 (defvar opencode-session-buffers
   (make-hash-table :test 'equal)
   "A mapping of session ids to Emacs buffers.")

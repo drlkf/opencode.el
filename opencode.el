@@ -297,6 +297,23 @@ Also prompts for pending questions or permissions if any."
 
 (add-hook 'window-selection-change-functions 'opencode--window-selection-change-hook)
 
+(defun opencode--focus-in-hook ()
+  "Re-trigger pending permission or question prompts when Emacs regains focus.
+Handles the case where the session buffer was already selected when the
+request arrived but Emacs did not have OS focus at the time."
+  (when (frame-focus-state)
+    (when (and opencode-session-id
+               (eq (current-buffer)
+                   (gethash opencode-session-id opencode-session-buffers)))
+      (when opencode-session-pending-permission
+        (run-at-time 0 nil #'opencode-respond-permission))
+      (when opencode-session-pending-questions
+        (let ((pending opencode-session-pending-questions))
+          (setq opencode-session-pending-questions nil)
+          (opencode--prompt-questions (car pending) (cdr pending)))))))
+
+(add-function :after after-focus-change-function #'opencode--focus-in-hook)
+
 (defun opencode--prompt-questions (question-id questions)
   "Prompt user to answer QUESTIONS, then reply or reject to QUESTION-ID.
 QUESTIONS is a vector of question objects with `question', `header',

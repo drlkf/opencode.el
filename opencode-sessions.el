@@ -61,6 +61,7 @@
   (define-keymap
     "C-c C-y" 'opencode-yank-code-block
     "C-c C-c" 'opencode-abort-session
+    "C-c C-p" 'opencode-respond-permission
     "C-c x" 'opencode-kill-session
     "<backtab>" 'backward-button
     "TAB" 'opencode--tab-dispatch
@@ -115,6 +116,11 @@ Buffer local so we can configure models per agent per session.")
 (defvar-local opencode-session-pending-questions nil
   "Pending questions for this session buffer, awaiting user response.
 When non-nil, contains a cons cell (QUESTION-ID . QUESTIONS-VECTOR).")
+
+(defvar-local opencode-session-pending-permission nil
+  "Pending permission requests for this session buffer, as a list of plists.
+Each plist has keys :id, :session-id, :type, :title, and :marker.
+Requests are processed FIFO.")
 
 (defvar opencode-session-buffers
   (make-hash-table :test 'equal)

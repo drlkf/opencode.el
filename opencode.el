@@ -30,9 +30,9 @@
 
 (require 'json)
 (require 'magit)
-(require 'notifications)
 (require 'opencode-api)
 (require 'opencode-common)
+(require 'opencode-permission)
 (require 'opencode-question)
 (require 'opencode-sessions)
 (require 'plz-media-type)
@@ -267,62 +267,9 @@ Or nil to disable logging.")
                        event))
        (opencode--truncate-at-max-lines opencode-event-log-max-lines)))))
 
-(defun opencode--toast-show (properties)
-  "Show toast notification with PROPERTIES from opencode."
-  (funcall opencode-toast-function properties))
-
-(defun opencode--default-toast-show (properties)
-  "Default notifier to show notification with PROPERTIES from opencode."
-  (let-alist properties
-    (cond
-     ((featurep 'dbusbind)
-      (notifications-notify
-       :title .title
-       :body .message
-       :urgency (pcase .variant
-                  ((or "error" "warning" )'critical)
-                  ((or "info" "success") 'normal))
-       :timeout (or .duration 5000)
-       :replaces-id 5647
-       :app-icon 'none))
-     ((eq system-type 'darwin)
-      (let ((title (concat (pcase .variant
-                             ("error" "❌")
-                             ("warning" "⚠️")
-                             ((or "info" "success") "ℹ️"))
-                           " " .title)))
-        (if (executable-find "terminal-notifier")
-            (start-process "opencode-notification" nil "terminal-notifier"
-                           "-title" title
-                           "-message" .message
-                           "-group" "opencode-toast"
-                           "-activate" "org.gnu.Emacs"
-                           "-sound" (pcase .variant
-                                      ((or "error" "warning") "Basso")
-                                      (_ "default")))
-          (start-process "opencode-notification" nil "osascript" "-e"
-                         (format "display notification %S with title %S"
-                                 .message
-                                 title))))))))
-
-(defun opencode--buffer-active-p (buffer)
-  "Return non-nil if BUFFER is visible in the selected window of a focused frame."
-  (and buffer
-       (eq buffer (window-buffer (selected-window)))
-       (frame-focus-state (window-frame (selected-window)))))
-
-(defun opencode--output-questions (buffer questions)
-  "Output QUESTIONS to BUFFER with ❓ prefix for each question."
-  (when (and (buffer-live-p buffer)
-             (get-buffer-process buffer))
-    (with-current-buffer buffer
-      (opencode--maybe-insert-block-spacing)
-      (opencode--output (opencode--format-questions questions))
-      (opencode--output "\n"))))
-
-(defun opencode--window-selection-change-hook (_frame)
+(defun opencode--selection-change-hook (&optional _frame)
   "Hook to remove session from the alerted sessions list when it's visited.
-Also prompts for pending questions if any."
+Also prompts for pending questions or permissions if any."
   (when opencode-session-id
     (setf opencode-alerted-sessions
           (cl-delete-if (lambda (session)
@@ -334,32 +281,16 @@ Also prompts for pending questions if any."
     (when opencode-session-pending-questions
       (let ((pending opencode-session-pending-questions))
         (setq opencode-session-pending-questions nil)
-        (opencode--prompt-questions (car pending) (cdr pending))))))
+        (opencode--prompt-questions (car pending) (cdr pending))))
+    ;; Handle pending permissions when buffer becomes active
+    (when opencode-session-pending-permission
+      (run-at-time 0 nil #'opencode-respond-permission))))
 
-(add-hook 'window-selection-change-functions 'opencode--window-selection-change-hook)
+(add-hook 'window-selection-change-functions 'opencode--selection-change-hook)
 
-(defun opencode--prompt-questions (question-id questions)
-  "Prompt user to answer QUESTIONS, then reply or reject to QUESTION-ID.
-QUESTIONS is a vector of question objects with `question', `header',
-`options', and `multiple' fields.  Each option has `label' and
-`description' fields.  Displays a transient popup for each question.
-On confirm, replies to the server.  On reject or dismiss, rejects."
-  (opencode-question--prompt question-id questions))
-
-(defun opencode--permission-request (permission-id session-id type title)
-  "Respond to permission request from opencode.
-Args are PERMISSION-ID, SESSION-ID, and the TYPE and TITLE of the request."
-  (opencode-api-respond-permission-request (session-id permission-id)
-      `((response . ,(x-popup-dialog
-                      t
-                      `(,(format "OpenCode Permission Request\n%s: %s"
-                                 type title)
-                        ("Accept" . "once")
-                        ("Accept Always" . "always")
-                        ("Deny" . "reject")))))
-      response
-    (unless response
-      (user-error "Response to permission request failed"))))
+;; Handles the case where the session buffer was already selected when the
+;; request arrived but Emacs did not have OS focus at the time.
+(add-function :after after-focus-change-function #'opencode--selection-change-hook)
 
 (defun opencode--handle-message (event)
   "Handle a message EVENT from opencode server."
@@ -411,27 +342,14 @@ Args are PERMISSION-ID, SESSION-ID, and the TYPE and TITLE of the request."
           (message.part.delta (opencode-session--update-part properties .delta
                                                              (gethash .partID opencode-part-type)))
           (message.updated (opencode-session--message-updated .info))
-          (permission.asked (opencode--permission-request .id .sessionID .permission .patterns))
+          (permission.asked
+           (opencode--permission-request
+            .id .sessionID .permission
+            .metadata
+            (seq-into .patterns 'list)
+            (seq-into .always 'list)))
           (question.asked
-           (let ((buffer (gethash .sessionID opencode-session-buffers)))
-             ;; Output questions to the buffer
-             (opencode--output-questions buffer .questions)
-             (if (opencode--buffer-active-p buffer)
-                 ;; Buffer is active, prompt immediately
-                 (opencode--prompt-questions .id .questions)
-               ;; Buffer not active, show notification and store pending
-               (opencode--toast-show `((title . "OpenCode Questions")
-                                       (message . ,(alist-get
-                                                    'question
-                                                    (aref .questions 0)))
-                                       (variant . "info")))
-               (opencode-api-session (.sessionID)
-                   session
-                 (push session opencode-alerted-sessions))
-               (when buffer
-                 (with-current-buffer buffer
-                   (setq opencode-session-pending-questions
-                         (cons .id .questions)))))))
+           (opencode--question-request .id .sessionID .questions))
           (otherwise (opencode--log-event "WARNING" "unhandled message type")))))))
 
 (defun opencode-disconnect (&optional event)

@@ -159,9 +159,9 @@ user can re-open it later with \\[opencode-respond-permission]."
   "Respond to a permission request from the opencode server."
   [:description
    (lambda ()
-     (format "%s: %s"
-             (or opencode-permission--type "permission")
-             (or opencode-permission--title "")))
+     (or opencode-permission--title
+         opencode-permission--type
+         "permission"))
    ("o" "Ok"            opencode-permission--do-accept)
    ("a" opencode-permission--do-accept-always
     :description (lambda () (format "Accept always (%s)"
@@ -202,7 +202,7 @@ Otherwise a toast notification is shown."
         (when (get-buffer-process buffer)
           (opencode--maybe-insert-block-spacing)
           (opencode--output
-           (concat (propertize (format "%s: %s" type title) 'face 'warning)
+           (concat (propertize title 'face 'warning)
                    "\n\n"))
           ;; Marker points just before the trailing newlines so the
           ;; response label is appended inline on the same output line.

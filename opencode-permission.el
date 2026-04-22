@@ -209,14 +209,15 @@ METADATA, PATTERNS, and ALWAYS come from the server request payload."
                                 :type type
                                 :title title
                                 :always always
-                                :marker marker)))))
-    (if (opencode--buffer-active-p buffer)
-        (run-at-time 0 nil #'opencode-respond-permission)
-      (unless (frame-focus-state (selected-frame))
+                                :marker marker))))
+      (if (opencode--buffer-active-p buffer)
+          (run-at-time 0 nil #'opencode-respond-permission)
         (opencode--toast-show `((title . "OpenCode Permission Request")
-                                (message . ,(opencode--permission-format-title
-                                             type metadata patterns))
-                                (variant . "info")))))))
+                                (message . ,title)
+                                (variant . "info")))
+        (opencode-api-session (session-id)
+            session
+          (push session opencode-alerted-sessions))))))
 
 (defun opencode--permission-request (permission-id session-id type metadata patterns always)
   "Queue a permission request for SESSION-ID and output it to the session buffer.

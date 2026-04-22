@@ -186,6 +186,38 @@ CALLBACK is called with one of \"once\", \"always\", or \"reject\"."
 
 ;;; Permission request handling
 
+(defun opencode--permission-queue-request (buffer permission-id session-id
+                                                  type metadata patterns always)
+  "Queue a permission request in BUFFER for SESSION-ID.
+PERMISSION-ID identifies the request.  TYPE is the permission kind.
+METADATA, PATTERNS, and ALWAYS come from the server request payload."
+  (with-current-buffer buffer
+    (let* ((title (opencode--permission-format-title type metadata patterns))
+           (marker (make-marker)))
+      (when (get-buffer-process buffer)
+        (opencode--maybe-insert-block-spacing)
+        (opencode--output
+         (concat (propertize title 'face 'warning)
+                 "\n\n"))
+        ;; Marker points just before the trailing newlines so the
+        ;; response label is appended inline on the same output line.
+        (set-marker marker (- (opencode--session-process-position) 2)))
+      (setq opencode-session-pending-permission
+            (append opencode-session-pending-permission
+                    (list (list :id permission-id
+                                :session-id session-id
+                                :type type
+                                :title title
+                                :always always
+                                :marker marker)))))
+    (if (opencode--buffer-active-p buffer)
+        (run-at-time 0 nil #'opencode-respond-permission)
+      (unless (frame-focus-state (selected-frame))
+        (opencode--toast-show `((title . "OpenCode Permission Request")
+                                (message . ,(opencode--permission-format-title
+                                             type metadata patterns))
+                                (variant . "info")))))))
+
 (defun opencode--permission-request (permission-id session-id type metadata patterns always)
   "Queue a permission request for SESSION-ID and output it to the session buffer.
 PERMISSION-ID identifies the request.  TYPE is the permission kind
@@ -194,34 +226,16 @@ PATTERNS is a list of glob/path patterns.  ALWAYS is a list of patterns
 that would be permanently approved.
 A marker is saved so the response label can be appended to the same line.
 If the session buffer is active, the response prompt is shown immediately.
-Otherwise a toast notification is shown."
-  (when-let (buffer (gethash session-id opencode-session-buffers))
-    (with-current-buffer buffer
-      (let* ((title (opencode--permission-format-title type metadata patterns))
-             (marker (make-marker)))
-        (when (get-buffer-process buffer)
-          (opencode--maybe-insert-block-spacing)
-          (opencode--output
-           (concat (propertize title 'face 'warning)
-                   "\n\n"))
-          ;; Marker points just before the trailing newlines so the
-          ;; response label is appended inline on the same output line.
-          (set-marker marker (- (opencode--session-process-position) 2)))
-        (setq opencode-session-pending-permission
-              (append opencode-session-pending-permission
-                      (list (list :id permission-id
-                                  :session-id session-id
-                                  :type type
-                                  :title title
-                                  :always always
-                                  :marker marker)))))
-      (if (opencode--buffer-active-p buffer)
-          (run-at-time 0 nil #'opencode-respond-permission)
-        (unless (frame-focus-state (selected-frame))
-          (opencode--toast-show `((title . "OpenCode Permission Request")
-                                  (message . ,(opencode--permission-format-title
-                                               type metadata patterns))
-                                  (variant . "info"))))))))
+Otherwise the session is opened so the request has somewhere to remain pending."
+  (if-let (buffer (gethash session-id opencode-session-buffers))
+      (opencode--permission-queue-request buffer permission-id session-id
+                                          type metadata patterns always)
+    (opencode-api-session (session-id)
+        session
+      (opencode-open-session session)
+      (when-let (buffer (gethash session-id opencode-session-buffers))
+        (opencode--permission-queue-request buffer permission-id session-id
+                                            type metadata patterns always)))))
 
 (defun opencode--send-permission-response (choice)
   "Send CHOICE as the response to the next pending permission request.

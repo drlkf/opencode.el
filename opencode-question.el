@@ -35,6 +35,7 @@
 (require 'transient)
 (require 'opencode-api)
 (require 'opencode-common)
+(require 'opencode-sessions)
 
 ;;; Per-question display state (global, since transient is not buffer-local)
 
@@ -283,6 +284,47 @@ On confirm, replies to the server.  On reject or dismiss, rejects."
         opencode-question--answers nil
         opencode-question--handled nil)
   (opencode-question--show-current))
+
+(defun opencode--prompt-questions (question-id questions)
+  "Prompt user to answer QUESTIONS, then reply or reject to QUESTION-ID.
+QUESTIONS is a vector of question objects with `question', `header',
+`options', and `multiple' fields.  Each option has `label' and
+`description' fields.  Displays a transient popup for each question.
+On confirm, replies to the server.  On reject or dismiss, rejects."
+  (opencode-question--prompt question-id questions))
+
+(defun opencode--output-questions (buffer questions)
+  "Output QUESTIONS to BUFFER with ❓ prefix for each question."
+  (when (and (buffer-live-p buffer)
+             (get-buffer-process buffer))
+    (with-current-buffer buffer
+      (opencode--maybe-insert-block-spacing)
+      (opencode--output (opencode--format-questions questions))
+      (opencode--output "\n"))))
+
+(defun opencode--queue-questions (buffer question-id questions)
+  "Queue QUESTION-ID with QUESTIONS in BUFFER and prompt if active."
+  (opencode--output-questions buffer questions)
+  (if (opencode--buffer-active-p buffer)
+      (opencode--prompt-questions question-id questions)
+    (opencode--toast-show `((title . "OpenCode Questions")
+                            (message . ,(alist-get 'question (aref questions 0)))
+                            (variant . "info")))
+    (with-current-buffer buffer
+      (setq opencode-session-pending-questions
+            (cons question-id questions)))))
+
+(defun opencode--question-request (question-id session-id questions)
+  "Handle QUESTION-ID with QUESTIONS for SESSION-ID.
+Ensures the session buffer exists so pending questions are not dropped."
+  (if-let (buffer (gethash session-id opencode-session-buffers))
+      (opencode--queue-questions buffer question-id questions)
+    (opencode-api-session (session-id)
+        session
+      (push session opencode-alerted-sessions)
+      (opencode-open-session session)
+      (when-let (buffer (gethash session-id opencode-session-buffers))
+        (opencode--queue-questions buffer question-id questions)))))
 
 (provide 'opencode-question)
 ;;; opencode-question.el ends here

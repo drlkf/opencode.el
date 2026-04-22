@@ -267,15 +267,6 @@ Or nil to disable logging.")
                        event))
        (opencode--truncate-at-max-lines opencode-event-log-max-lines)))))
 
-(defun opencode--output-questions (buffer questions)
-  "Output QUESTIONS to BUFFER with ❓ prefix for each question."
-  (when (and (buffer-live-p buffer)
-             (get-buffer-process buffer))
-    (with-current-buffer buffer
-      (opencode--maybe-insert-block-spacing)
-      (opencode--output (opencode--format-questions questions))
-      (opencode--output "\n"))))
-
 (defun opencode--selection-change-hook (&optional _frame)
   "Hook to remove session from the alerted sessions list when it's visited.
 Also prompts for pending questions or permissions if any."
@@ -300,14 +291,6 @@ Also prompts for pending questions or permissions if any."
 ;; Handles the case where the session buffer was already selected when the
 ;; request arrived but Emacs did not have OS focus at the time.
 (add-function :after after-focus-change-function #'opencode--selection-change-hook)
-
-(defun opencode--prompt-questions (question-id questions)
-  "Prompt user to answer QUESTIONS, then reply or reject to QUESTION-ID.
-QUESTIONS is a vector of question objects with `question', `header',
-`options', and `multiple' fields.  Each option has `label' and
-`description' fields.  Displays a transient popup for each question.
-On confirm, replies to the server.  On reject or dismiss, rejects."
-  (opencode-question--prompt question-id questions))
 
 (defun opencode--handle-message (event)
   "Handle a message EVENT from opencode server."
@@ -366,25 +349,7 @@ On confirm, replies to the server.  On reject or dismiss, rejects."
             (seq-into .patterns 'list)
             (seq-into .always 'list)))
           (question.asked
-           (let ((buffer (gethash .sessionID opencode-session-buffers)))
-             ;; Output questions to the buffer
-             (opencode--output-questions buffer .questions)
-             (if (opencode--buffer-active-p buffer)
-                 ;; Buffer is active, prompt immediately
-                 (opencode--prompt-questions .id .questions)
-               ;; Buffer not active, show notification and store pending
-               (opencode--toast-show `((title . "OpenCode Questions")
-                                       (message . ,(alist-get
-                                                    'question
-                                                    (aref .questions 0)))
-                                       (variant . "info")))
-               (opencode-api-session (.sessionID)
-                   session
-                 (push session opencode-alerted-sessions))
-               (when buffer
-                 (with-current-buffer buffer
-                   (setq opencode-session-pending-questions
-                         (cons .id .questions)))))))
+           (opencode--question-request .id .sessionID .questions))
           (otherwise (opencode--log-event "WARNING" "unhandled message type")))))))
 
 (defun opencode-disconnect (&optional event)

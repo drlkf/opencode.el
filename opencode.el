@@ -358,7 +358,9 @@ On confirm, replies to the server.  On reject or dismiss, rejects."
           (permission.asked
            (opencode--permission-request
             .id .sessionID .permission
-            (mapconcat #'identity .patterns ", ")))
+            .metadata
+            (append .patterns nil)
+            (append .always nil)))
           (question.asked
            (let ((buffer (gethash .sessionID opencode-session-buffers)))
              ;; Output questions to the buffer

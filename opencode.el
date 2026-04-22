@@ -276,7 +276,7 @@ Or nil to disable logging.")
       (opencode--output (opencode--format-questions questions))
       (opencode--output "\n"))))
 
-(defun opencode--window-selection-change-hook (_frame)
+(defun opencode--selection-change-hook (&optional _frame)
   "Hook to remove session from the alerted sessions list when it's visited.
 Also prompts for pending questions or permissions if any."
   (when opencode-session-id
@@ -295,24 +295,11 @@ Also prompts for pending questions or permissions if any."
     (when opencode-session-pending-permission
       (run-at-time 0 nil #'opencode-respond-permission))))
 
-(add-hook 'window-selection-change-functions 'opencode--window-selection-change-hook)
+(add-hook 'window-selection-change-functions 'opencode--selection-change-hook)
 
-(defun opencode--focus-in-hook ()
-  "Re-trigger pending permission or question prompts when Emacs regains focus.
-Handles the case where the session buffer was already selected when the
-request arrived but Emacs did not have OS focus at the time."
-  (when (frame-focus-state)
-    (when (and opencode-session-id
-               (eq (current-buffer)
-                   (gethash opencode-session-id opencode-session-buffers)))
-      (when opencode-session-pending-permission
-        (run-at-time 0 nil #'opencode-respond-permission))
-      (when opencode-session-pending-questions
-        (let ((pending opencode-session-pending-questions))
-          (setq opencode-session-pending-questions nil)
-          (opencode--prompt-questions (car pending) (cdr pending)))))))
-
-(add-function :after after-focus-change-function #'opencode--focus-in-hook)
+;; Handles the case where the session buffer was already selected when the
+;; request arrived but Emacs did not have OS focus at the time.
+(add-function :after after-focus-change-function #'opencode--selection-change-hook)
 
 (defun opencode--prompt-questions (question-id questions)
   "Prompt user to answer QUESTIONS, then reply or reject to QUESTION-ID.
@@ -376,8 +363,8 @@ On confirm, replies to the server.  On reject or dismiss, rejects."
            (opencode--permission-request
             .id .sessionID .permission
             .metadata
-            (append .patterns nil)
-            (append .always nil)))
+            (seq-into .patterns 'list)
+            (seq-into .always 'list)))
           (question.asked
            (let ((buffer (gethash .sessionID opencode-session-buffers)))
              ;; Output questions to the buffer

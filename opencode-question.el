@@ -269,7 +269,7 @@ _CHILDREN is the statically-defined children, which are ignored."
         (aset opencode-question--labels i (alist-get 'label opt))
         (aset opencode-question--descriptions i (alist-get 'description opt))))
     (add-hook 'transient-exit-hook #'opencode-question--on-exit)
-    (transient-setup 'opencode-question--transient)))
+    (opencode-question--transient)))
 
 (defun opencode-question--prompt (question-id questions)
   "Prompt user to answer QUESTIONS and reply or reject to QUESTION-ID.

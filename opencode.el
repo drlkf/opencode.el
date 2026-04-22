@@ -30,9 +30,9 @@
 
 (require 'json)
 (require 'magit)
-(require 'notifications)
 (require 'opencode-api)
 (require 'opencode-common)
+(require 'opencode-permission)
 (require 'opencode-question)
 (require 'opencode-sessions)
 (require 'plz-media-type)
@@ -82,16 +82,6 @@ Set this to a custom command for special cases like nix:
 (defcustom opencode-auto-start-server t
   "Whether to automatically start a server if none is running.
 When nil, `opencode' will only connect to an already running server."
-  :type 'boolean
-  :group 'opencode)
-
-(defcustom opencode-transient-permission nil
-  "When non-nil, use a transient popup to respond to permission requests.
-The transient offers three choices: accept once, accept always
-(with the glob patterns that will be permanently approved shown in
-the label), or deny.
-
-When nil (the default), a plain `x-popup-dialog' is used instead."
   :type 'boolean
   :group 'opencode)
 
@@ -277,50 +267,6 @@ Or nil to disable logging.")
                        event))
        (opencode--truncate-at-max-lines opencode-event-log-max-lines)))))
 
-(defun opencode--toast-show (properties)
-  "Show toast notification with PROPERTIES from opencode."
-  (funcall opencode-toast-function properties))
-
-(defun opencode--default-toast-show (properties)
-  "Default notifier to show notification with PROPERTIES from opencode."
-  (let-alist properties
-    (cond
-     ((featurep 'dbusbind)
-      (notifications-notify
-       :title .title
-       :body .message
-       :urgency (pcase .variant
-                  ((or "error" "warning" )'critical)
-                  ((or "info" "success") 'normal))
-       :timeout (or .duration 5000)
-       :replaces-id 5647
-       :app-icon 'none))
-     ((eq system-type 'darwin)
-      (let ((title (concat (pcase .variant
-                             ("error" "❌")
-                             ("warning" "⚠️")
-                             ((or "info" "success") "ℹ️"))
-                           " " .title)))
-        (if (executable-find "terminal-notifier")
-            (start-process "opencode-notification" nil "terminal-notifier"
-                           "-title" title
-                           "-message" .message
-                           "-group" "opencode-toast"
-                           "-activate" "org.gnu.Emacs"
-                           "-sound" (pcase .variant
-                                      ((or "error" "warning") "Basso")
-                                      (_ "default")))
-          (start-process "opencode-notification" nil "osascript" "-e"
-                         (format "display notification %S with title %S"
-                                 .message
-                                 title))))))))
-
-(defun opencode--buffer-active-p (buffer)
-  "Return non-nil if BUFFER is visible in the selected window of a focused frame."
-  (and buffer
-       (eq buffer (window-buffer (selected-window)))
-       (frame-focus-state (window-frame (selected-window)))))
-
 (defun opencode--output-questions (buffer questions)
   "Output QUESTIONS to BUFFER with ❓ prefix for each question."
   (when (and (buffer-live-p buffer)
@@ -358,87 +304,6 @@ QUESTIONS is a vector of question objects with `question', `header',
 `description' fields.  Displays a transient popup for each question.
 On confirm, replies to the server.  On reject or dismiss, rejects."
   (opencode-question--prompt question-id questions))
-
-(defun opencode--permission-request (permission-id session-id type title)
-  "Queue a permission request for SESSION-ID and output it to the session buffer.
-PERMISSION-ID identifies the request.  TYPE is the permission kind
-\(e.g. \"bash\") and TITLE is the description (e.g. the command patterns).
-A marker is saved so the response label can be appended to the same line.
-If the session buffer is active, the response prompt is shown immediately."
-  (when-let (buffer (gethash session-id opencode-session-buffers))
-    (with-current-buffer buffer
-      (let ((marker (make-marker)))
-        (when (get-buffer-process buffer)
-          (opencode--maybe-insert-block-spacing)
-          (opencode--output
-           (concat (propertize (format "%s: %s" type title) 'face 'warning)
-                   "\n\n"))
-          ;; Marker points just before the trailing newlines so the
-          ;; response label is appended inline on the same output line.
-          (set-marker marker (- (opencode--session-process-position) 2)))
-        (setq opencode-session-pending-permission
-              (append opencode-session-pending-permission
-                      (list (list :id permission-id
-                                  :session-id session-id
-                                  :type type
-                                  :title title
-                                  :marker marker)))))
-      (when (opencode--buffer-active-p buffer)
-        (run-at-time 0 nil #'opencode-respond-permission)))))
-
-(defun opencode--send-permission-response (choice)
-  "Send CHOICE as the response to the next pending permission request.
-CHOICE is one of \"once\", \"always\", or \"reject\".
-Pops the first request from the queue and appends an accepted/denied
-label to the original output line via its saved marker."
-  (unless opencode-session-pending-permission
-    (user-error "No pending permission request"))
-  (let* ((perm (car opencode-session-pending-permission))
-         (permission-id (plist-get perm :id))
-         (session-id (plist-get perm :session-id))
-         (marker (plist-get perm :marker)))
-    (setq opencode-session-pending-permission
-          (cdr opencode-session-pending-permission))
-    (when (and marker (marker-buffer marker))
-      (let ((label (pcase choice
-                     ("once"   (propertize " [accepted]"        'face 'success))
-                     ("always" (propertize " [accepted always]" 'face 'success))
-                     ("reject" (propertize " [denied]"          'face 'error))))
-            (inhibit-read-only t))
-        (save-excursion
-          (goto-char marker)
-          (insert label))
-        (set-marker marker nil)))
-    (when opencode-session-pending-permission
-      (run-at-time 0 nil #'opencode-respond-permission))
-    (opencode-api-respond-permission-request (session-id permission-id)
-        `((response . ,choice))
-        response
-      (unless response
-        (user-error "Response to permission request failed")))))
-
-(defun opencode-respond-permission ()
-  "Respond to the next pending permission request.
-Uses a transient popup when `opencode-transient-permission' is non-nil,
-otherwise falls back to `x-popup-dialog'."
-  (interactive)
-  (unless opencode-session-pending-permission
-    (user-error "No pending permission request"))
-  (let* ((perm (car opencode-session-pending-permission))
-         (type (plist-get perm :type))
-         (title (plist-get perm :title)))
-    (if opencode-transient-permission
-        (progn
-          (require 'opencode-permission)
-          (opencode-permission--prompt
-           type title nil #'opencode--send-permission-response))
-      (opencode--send-permission-response
-       (x-popup-dialog
-        t
-        `(,(format "OpenCode Permission Request\n%s: %s" type title)
-          ("Accept" . "once")
-          ("Accept Always" . "always")
-          ("Deny" . "reject")))))))
 
 (defun opencode--handle-message (event)
   "Handle a message EVENT from opencode server."

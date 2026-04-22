@@ -1,8 +1,8 @@
 ;;; opencode-permission.el --- Permission response UI for opencode  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2025  Scott Zimmermann
+;; Copyright (C) 2025  nineluj
 
-;; Author: Scott Zimmermann <sczi@disroot.org>
+;; Author: nineluj <code@nineluj.com>
 ;; Keywords: tools, llm, opencode
 
 ;; This program is free software; you can redistribute it and/or modify
@@ -25,14 +25,14 @@
 ;; always (showing the patterns that will be permanently approved),
 ;; or n to deny.
 ;;
-;; Activated when `opencode-transient-permission' is non-nil.
-;; When nil, the fallback is a plain `x-popup-dialog'.
-;;
 ;; Dismissing the transient without responding (e.g. q or C-g) leaves
 ;; the request pending.  Re-open it later with `opencode-respond-permission'.
 
 ;;; Code:
 
+(require 'opencode-api)
+(require 'opencode-common)
+(require 'opencode-sessions)
 (require 'transient)
 
 ;;; State
@@ -114,7 +114,83 @@ CALLBACK is called with one of \"once\", \"always\", or \"reject\"."
         opencode-permission--callback callback
         opencode-permission--handled nil)
   (add-hook 'transient-exit-hook #'opencode-permission--on-exit)
-  (opencode-permission--transient))
+  (transient-setup 'opencode-permission--transient))
+
+;;; Permission request handling
+
+(defun opencode--permission-request (permission-id session-id type title)
+  "Queue a permission request for SESSION-ID and output it to the session buffer.
+PERMISSION-ID identifies the request.  TYPE is the permission kind
+\(e.g. \"bash\") and TITLE is the description (e.g. the command patterns).
+A marker is saved so the response label can be appended to the same line.
+If the session buffer is active, the response prompt is shown immediately.
+Otherwise a toast notification is shown."
+  (when-let (buffer (gethash session-id opencode-session-buffers))
+    (with-current-buffer buffer
+      (let ((marker (make-marker)))
+        (when (get-buffer-process buffer)
+          (opencode--maybe-insert-block-spacing)
+          (opencode--output
+           (concat (propertize (format "%s: %s" type title) 'face 'warning)
+                   "\n\n"))
+          ;; Marker points just before the trailing newlines so the
+          ;; response label is appended inline on the same output line.
+          (set-marker marker (- (opencode--session-process-position) 2)))
+        (setq opencode-session-pending-permission
+              (append opencode-session-pending-permission
+                      (list (list :id permission-id
+                                  :session-id session-id
+                                  :type type
+                                  :title title
+                                  :marker marker)))))
+      (if (opencode--buffer-active-p buffer)
+          (run-at-time 0 nil #'opencode-respond-permission)
+        (unless (frame-focus-state (selected-frame))
+          (opencode--toast-show `((title . "OpenCode Permission Request")
+                                  (message . ,(format "%s: %s" type title))
+                                  (variant . "info"))))))))
+
+(defun opencode--send-permission-response (choice)
+  "Send CHOICE as the response to the next pending permission request.
+CHOICE is one of \"once\", \"always\", or \"reject\".
+Pops the first request from the queue and appends an accepted/denied
+label to the original output line via its saved marker."
+  (unless opencode-session-pending-permission
+    (user-error "No pending permission request"))
+  (let* ((perm (car opencode-session-pending-permission))
+         (permission-id (plist-get perm :id))
+         (session-id (plist-get perm :session-id))
+         (marker (plist-get perm :marker)))
+    (setq opencode-session-pending-permission
+          (cdr opencode-session-pending-permission))
+    (when (and marker (marker-buffer marker))
+      (let ((label (pcase choice
+                     ("once"   (propertize " [accepted]"        'face 'success))
+                     ("always" (propertize " [accepted always]" 'face 'success))
+                     ("reject" (propertize " [denied]"          'face 'error))))
+            (inhibit-read-only t))
+        (save-excursion
+          (goto-char marker)
+          (insert label))
+        (set-marker marker nil)))
+    (when opencode-session-pending-permission
+      (run-at-time 0 nil #'opencode-respond-permission))
+    (opencode-api-respond-permission-request (session-id permission-id)
+        `((response . ,choice))
+        response
+      (unless response
+        (user-error "Response to permission request failed")))))
+
+(defun opencode-respond-permission ()
+  "Respond to the next pending permission request using a transient popup."
+  (interactive)
+  (unless opencode-session-pending-permission
+    (user-error "No pending permission request"))
+  (let* ((perm (car opencode-session-pending-permission))
+         (type (plist-get perm :type))
+         (title (plist-get perm :title)))
+    (opencode-permission--prompt
+     type title nil #'opencode--send-permission-response)))
 
 (provide 'opencode-permission)
 ;;; opencode-permission.el ends here

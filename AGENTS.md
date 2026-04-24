@@ -10,7 +10,8 @@ that code you write is working correctly.
 
 ## Build & Verification Commands
 
-After you are finished editing any .el file, run `./check.sh` and fix any warnings.
+After you are finished editing any .el file, byte-compile it via emacsclient
+and fix any warnings.
 
 ### Naming Conventions
 

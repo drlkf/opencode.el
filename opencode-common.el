@@ -86,6 +86,22 @@ for title, message, variant (error/warning/info/success), and duration"
   :type 'boolean
   :group 'opencode)
 
+(defcustom opencode-collapsed-tools nil
+  "Control which tool outputs are collapsed by default.
+When nil, all tool outputs are expanded (subject to `opencode-show-tool-output').
+When a list of tool name symbols, those tools have their output collapsed.
+The special symbol `everything-but' as the first element inverts the logic:
+the remaining symbols name tools whose output should NOT be collapsed.
+The special symbol `bash-non-zero' means bash outputs are only shown when
+the command exits with a non-zero status.
+
+Examples:
+  \\='(read todowrite)           - collapse read and todowrite output
+  \\='(everything-but bash-non-zero) - collapse everything except bash
+                                    failures"
+  :type '(repeat symbol)
+  :group 'opencode)
+
 (defun opencode--time-ago (opencode-object type)
   "Return .time.TYPE value from OPENCODE-OBJECT, as seconds ago.
 Returns nil if the timestamp is not present."

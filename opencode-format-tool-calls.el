@@ -35,44 +35,52 @@
       (setf .filePath (opencode--relative-path-for-display .filePath)))
     (pcase tool
       ("edit"
-       (concat "edit " .filePath ":\n"
+       (concat "✏️ edit " .filePath ":\n"
                (opencode--format-edit-diff .oldString .newString)
                "\n"))
       ("apply_patch"
-       (concat "apply_patch:\n"
+       (concat "✏️ apply_patch:\n"
                (opencode--format-apply-patch .patchText)
                "\n"))
       ("read"
        (if (and .offset .limit)
-           (format "read %s [offset=%d, limit=%d]\n\n"
+           (format "📖 read %s [offset=%d, limit=%d]\n\n"
                    .filePath .offset .limit)
-         (format "read %s\n\n" .filePath)))
+         (format "📖 read %s\n\n" .filePath)))
       ("grep"
        (concat
-        (format "grep \"%s\"" .pattern)
+        (format "🔍 grep \"%s\"" .pattern)
         (when (or .include .path)
           (format " in %s" (or .include .path)))
         "\n\n"))
       ("bash"
        (concat (when .description
-                 (format "# %s\n" .description))
+                 (format "⚙️ %s\n" .description))
                (format "$ %s\n\n" .command)))
       ("websearch"
-       (format "websearch \"%s\"\n\n" .query))
+       (format "🌐 websearch \"%s\"\n\n" .query))
+      ("webfetch"
+       (format "🌐 webfetch %s\n\n" (or .url "")))
       ("call_omo_agent"
-       (format "call_omo_agent: %s\n\n%s\n\n" .description .prompt))
+       (format "🤖 call_omo_agent: %s\n\n%s\n\n" .description .prompt))
       ("glob"
        (if .path
-           (format "glob \"%s\" in %s\n\n"
+           (format "🔍 glob \"%s\" in %s\n\n"
                    .pattern
                    (opencode--relative-path-for-display .path))
-         (format "glob \"%s\"\n\n" .pattern)))
+         (format "🔍 glob \"%s\"\n\n" .pattern)))
       ("todowrite"
        (concat (opencode--render-todos .todos) "\n\n"))
       ("question"
-       (concat (opencode--format-questions (alist-get 'questions input)) "\n\n"))
+       (concat "❓ " (opencode--format-questions (alist-get 'questions input)) "\n\n"))
+      ("write"
+       (format "📝 write %s\n\n" .filePath))
+      ("skill"
+       (format "⚡ skill %s\n\n" (or .name "")))
       ((and "task" (guard (string= "explore" .subagent_type)))
-       (format "🔍 Explore: %s\n\n" .description))
+       (format "🤖 Explore: %s\n\n" .description))
+      ("task"
+       (format "🤖 %s: %s\n\n" (or .subagent_type "task") .description))
       (_ (if (= 1 (length input))
              (format "%s %s\n\n" tool (cdar input))
            ;; Multiple arguments: tool-name, then arg-name: value per line

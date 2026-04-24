@@ -50,12 +50,31 @@
 (define-derived-mode opencode-session-control-mode special-mode "Sessions"
   "Opencode session control panel mode.")
 
+;; Forward-declare for use in `opencode--tab-dispatch' below.
+(defvar opencode--collapsible-overlays)
+;; Forward-declare from opencode-common.el.
+(defvar opencode-collapsed-tools)
+
 (defun opencode--tab-dispatch ()
-  "Cycle session agent, or move to next button if point is on one."
+  "Toggle collapsed block, cycle agent, or move to next button."
   (interactive)
-  (if (button-at (point))
-      (forward-button 1)
-    (call-interactively #'opencode-cycle-session-agent)))
+  (cond
+   ;; If on a button, navigate to the next one
+   ((button-at (point))
+    (forward-button 1))
+   ;; If near a collapsible block, toggle it
+   ((or (cl-find-if (lambda (o) (overlay-get o 'opencode-collapsible-body))
+                    (overlays-at (point)))
+        (cl-find-if (lambda (entry)
+                      (let ((body (cdr entry)))
+                        (and (overlay-buffer body)
+                             (>= (overlay-start body) (point))
+                             (<= (overlay-start body)
+                                 (+ (line-end-position) 2)))))
+                    opencode--collapsible-overlays))
+    (opencode-toggle-collapsed-block))
+   ;; Otherwise cycle agent
+   (t (call-interactively #'opencode-cycle-session-agent))))
 
 (defvar opencode-session-mode-map
   (define-keymap
@@ -81,6 +100,7 @@
     "C-c F" 'opencode-fork-session
     "C-c D" 'opencode-delete-message
     "C-c R" 'opencode-revert-message
+    "C-c t" 'opencode-toggle-all-collapsed-blocks
     "/" 'opencode-insert-slash-command
     "@" 'opencode-add-subagent))
 
@@ -128,6 +148,12 @@ Requests are processed FIFO.")
 
 (defvar-local opencode--tool-calls-displayed nil
   "A hash table containing all callID that have already been displayed.")
+
+(defvar-local opencode--collapsible-overlays nil
+  "Alist mapping keys to body overlays for expand/collapse blocks.
+Each entry is (KEY . BODY-OV) where KEY is a part ID or tool-call
+identifier, and BODY-OV spans the rendered output region with an
+`invisible' property for toggling.")
 
 (defvar opencode-assistant-messages
   nil
@@ -618,9 +644,15 @@ Otherwise prompt for file in current project."
       (t "")))))
 
 (defun opencode--output (string)
-  "Output STRING as comint output."
-  (comint-output-filter (get-buffer-process (current-buffer))
-                        (opencode--buttonize-file-references string)))
+  "Output STRING as comint output.
+Preserves the window scroll position so that `comint-output-filter'
+advancing the process mark does not yank the display to the bottom."
+  (let* ((proc (get-buffer-process (current-buffer)))
+         (win (get-buffer-window (current-buffer) t))
+         (saved-start (and win (window-start win))))
+    (comint-output-filter proc (opencode--buttonize-file-references string))
+    (when saved-start
+      (set-window-start win saved-start t))))
 
 (defun opencode-insert-logo ()
   "Insert the opencode logo."
@@ -708,6 +740,11 @@ TYPE is text|reasoning|tool|step-finish"
 (defface opencode-tool-margin-highlight
   '((t :inherit outline-5 :height reset))
   "OpenCode margin face to apply to tool call blocks."
+  :group 'opencode-faces)
+
+(defface opencode-tool-output-margin-highlight
+  '((t :inherit shadow :height reset))
+  "OpenCode margin face to apply to tool output blocks."
   :group 'opencode-faces)
 
 (defun opencode--margin (face)
@@ -798,17 +835,191 @@ TYPE is text|reasoning|tool|step-finish"
     (when (member tool '("edit" "apply_patch"))
       (opencode--refine-diff-hunks start))))
 
-(defun opencode--maybe-insert-tool-output (message)
-  "Maybe insert the output from tool call in MESSAGE."
-  (let-alist message
+(defun opencode--tool-should-collapse-p (tool &optional exit-code)
+  "Return non-nil if TOOL output should start collapsed.
+Consult `opencode-collapsed-tools'.  EXIT-CODE is the bash exit code
+when available."
+  (when opencode-collapsed-tools
+    (let ((first (car opencode-collapsed-tools)))
+      (if (eq first 'everything-but)
+          ;; Invert: collapse everything EXCEPT the named exceptions
+          (let ((exceptions (cdr opencode-collapsed-tools)))
+            (not (or (memq (intern tool) exceptions)
+                     ;; bash-non-zero means: don't collapse bash when it failed
+                     (and (string= tool "bash")
+                          (memq 'bash-non-zero exceptions)
+                          exit-code
+                          (/= 0 exit-code)))))
+        ;; Normal: collapse only the listed tools
+        (memq (intern tool) opencode-collapsed-tools)))))
+
+(defun opencode--tool-output-suppressed-p (tool)
+  "Return non-nil if TOOL output should not be displayed at all."
+  (member tool '("question")))
+
+(defun opencode--header-start-before (position)
+  "Return the beginning of the header line preceding POSITION.
+POSITION is expected to be the start of a tool output block; the
+header is the non-blank line just above it."
+  (save-excursion
+    (goto-char position)
+    (skip-chars-backward "\r\n[:blank:]")
+    (line-beginning-position)))
+
+(defun opencode--make-indicator-overlay (header-start collapsed)
+  "Create an expand/collapse indicator overlay at HEADER-START.
+When COLLAPSED is non-nil, show a collapsed arrow; otherwise show
+an expanded arrow.  The overlay is zero-width and uses a
+`before-string' so the header text itself is undisturbed."
+  (let ((ov (make-overlay header-start header-start nil t nil)))
+    (overlay-put ov 'opencode-collapsible-indicator t)
+    (overlay-put ov 'before-string
+                 (propertize (if collapsed "▶ " "▼ ")
+                             'face 'shadow))
+    ov))
+
+(defun opencode--set-indicator-state (indicator-ov collapsed)
+  "Update INDICATOR-OV `before-string' to reflect COLLAPSED state."
+  (when (and indicator-ov (overlay-buffer indicator-ov))
+    (overlay-put indicator-ov 'before-string
+                 (propertize (if collapsed "▶ " "▼ ")
+                             'face 'shadow))))
+
+(defun opencode--make-collapsible-overlay (key start margin-face)
+  "Create a collapsed overlay from START to process position, keyed by KEY.
+MARGIN-FACE is the face applied to the margin bar when expanded.
+The overlay starts invisible; use `opencode-toggle-collapsed-block'
+to expand.  Also creates a \\='▶\\=' indicator overlay on the header
+line preceding START."
+  (let* ((end (opencode--session-process-position))
+         (body-ov (make-overlay start end nil t nil))
+         (indicator-ov (opencode--make-indicator-overlay
+                        (opencode--header-start-before start) t)))
+    (overlay-put body-ov 'invisible t)
+    (overlay-put body-ov 'evaporate t)
+    (overlay-put body-ov 'opencode-collapsible-body t)
+    (overlay-put body-ov 'opencode-margin-face margin-face)
+    (overlay-put body-ov 'opencode-indicator-overlay indicator-ov)
+    (push (cons key body-ov) opencode--collapsible-overlays)))
+
+(defun opencode--insert-tool-output (key text &optional collapsed)
+  "Insert tool output TEXT as a block keyed by KEY.
+When COLLAPSED is non-nil, the block starts collapsed."
+  (when (and text (not (string-empty-p text)))
+    (let ((start (opencode--session-process-position)))
+      (opencode--output text)
+      (opencode--output (if (string-suffix-p "\n" text) "\n" "\n\n"))
+      (if collapsed
+          (opencode--make-collapsible-overlay
+           key start 'opencode-tool-output-margin-highlight)
+        (opencode--add-margin start (save-excursion
+                                      (goto-char (opencode--session-process-position))
+                                      (skip-chars-backward "\r\n[:blank:]")
+                                      (point))
+                              'opencode-tool-output-margin-highlight)))))
+
+(defun opencode--maybe-insert-tool-output (part)
+  "Maybe insert the output from tool call in PART."
+  (let-alist part
     (when (and (string= .state.status "completed")
-               (or opencode-show-tool-output
-                   ;; show output for user run shell commands
-                   (and (string= .tool "bash")
-                        (not .state.input.description)))
-               .state.output)
-      (opencode--output .state.output)
-      (opencode--output "\n"))))
+               .state.output
+               (not (opencode--tool-output-suppressed-p .tool)))
+      (let ((collapsed (opencode--tool-should-collapse-p
+                        .tool .state.exitCode)))
+        (if (or opencode-show-tool-output
+                ;; Always show for user-initiated shell commands
+                (and (string= .tool "bash")
+                     (not .state.input.description))
+                ;; Show (possibly collapsed) when collapse config is set
+                opencode-collapsed-tools)
+            (opencode--insert-tool-output
+             (or .callID .id) .state.output collapsed)
+          ;; Legacy: no collapsed-tools config and show-tool-output is nil
+          nil)))))
+
+(defun opencode-toggle-collapsed-block ()
+  "Toggle expand/collapse of the nearest collapsible output block.
+Works when point is on the header line, inside an expanded block,
+or below a collapsed block."
+  (interactive)
+  (if-let ((ov (or
+                ;; Point is inside an expanded block
+                (cl-find-if (lambda (o) (overlay-get o 'opencode-collapsible-body))
+                            (overlays-at (point)))
+                ;; Overlay starts between line-end and a short range forward
+                (cdr (cl-find-if (lambda (entry)
+                              (let ((body (cdr entry)))
+                                (and (overlay-buffer body)
+                                     (>= (overlay-start body) (point))
+                                     (<= (overlay-start body)
+                                         (+ (line-end-position) 2)))))
+                            opencode--collapsible-overlays))
+                ;; Nearest overlay after point
+                (cdr (car (cl-sort
+                      (cl-remove-if-not
+                       (lambda (entry)
+                         (let ((body (cdr entry)))
+                           (and (overlay-buffer body)
+                                (>= (overlay-start body) (point)))))
+                       (copy-sequence opencode--collapsible-overlays))
+                      #'< :key (lambda (entry) (overlay-start (cdr entry))))))
+                ;; Nearest overlay before point (closest above)
+                (cdr (car (cl-sort
+                      (cl-remove-if-not
+                       (lambda (entry)
+                         (let ((body (cdr entry)))
+                           (and (overlay-buffer body)
+                                (<= (overlay-start body) (point)))))
+                       (copy-sequence opencode--collapsible-overlays))
+                      #'> :key (lambda (entry) (overlay-start (cdr entry)))))))))
+      (let* ((body (if (overlayp ov) ov (cdr ov)))
+             (expanding (overlay-get body 'invisible))
+             (indicator (overlay-get body 'opencode-indicator-overlay))
+             (face (or (overlay-get body 'opencode-margin-face)
+                       'opencode-tool-output-margin-highlight))
+             (margin (opencode--margin face)))
+        (overlay-put body 'invisible (not expanding))
+        (opencode--set-indicator-state indicator (not expanding))
+        (if expanding
+            (progn
+              (overlay-put body 'line-prefix margin)
+              (overlay-put body 'wrap-prefix margin)
+              (overlay-put body 'after-string "\n"))
+          (overlay-put body 'line-prefix nil)
+          (overlay-put body 'wrap-prefix nil)
+          (overlay-put body 'after-string nil)))
+    (message "No collapsible block at point")))
+
+(defun opencode-toggle-all-collapsed-blocks ()
+  "Toggle all collapsible output blocks in the current session buffer.
+If any blocks are collapsed, expand all.  If all are expanded, collapse all."
+  (interactive)
+  (if (null opencode--collapsible-overlays)
+      (message "No collapsible blocks in this buffer")
+    (let* ((any-collapsed (cl-some (lambda (entry)
+                                     (let ((body (cdr entry)))
+                                       (and (overlay-buffer body)
+                                            (overlay-get body 'invisible))))
+                                   opencode--collapsible-overlays))
+           (expanding any-collapsed))
+      (dolist (entry opencode--collapsible-overlays)
+        (let* ((body (cdr entry))
+               (indicator (overlay-get body 'opencode-indicator-overlay))
+               (face (or (overlay-get body 'opencode-margin-face)
+                         'opencode-tool-output-margin-highlight))
+               (margin (opencode--margin face)))
+          (when (overlay-buffer body)
+            (overlay-put body 'invisible (not expanding))
+            (opencode--set-indicator-state indicator (not expanding))
+            (if expanding
+                (progn
+                  (overlay-put body 'line-prefix margin)
+                  (overlay-put body 'wrap-prefix margin)
+                  (overlay-put body 'after-string "\n"))
+              (overlay-put body 'line-prefix nil)
+              (overlay-put body 'wrap-prefix nil)
+              (overlay-put body 'after-string nil)))))
+      (message "%s all collapsible blocks" (if expanding "Expanded" "Collapsed")))))
 
 (defun opencode-open-session-same-window (session)
   "Open SESSION using the current window."
@@ -832,9 +1043,10 @@ POP-TO-BUFFER controls whether to pop to or switch to the session buffer."
             (setq opencode-session-id .id
                   opencode-last-session-buffer buffer
                   default-directory .directory
-                  opencode-session-variant variant
-                  opencode--tool-calls-displayed (make-hash-table :test 'equal)
-                  opencode-session-agents (mapcar (lambda (agent)
+                   opencode-session-variant variant
+                   opencode--tool-calls-displayed (make-hash-table :test 'equal)
+                   opencode--collapsible-overlays nil
+                   opencode-session-agents (mapcar (lambda (agent)
                                                     (unless (alist-get 'model agent)
                                                       (setf (alist-get 'model agent)
                                                             opencode-last-model))
@@ -864,7 +1076,7 @@ POP-TO-BUFFER controls whether to pop to or switch to the session buffer."
                            (if (string= .type "tool")
                                (progn
                                  (opencode--insert-tool-block .tool .state.input)
-                                 (opencode--maybe-insert-tool-output message))
+                                 (opencode--maybe-insert-tool-output part))
                              (when .text
                                (let ((text (opencode--render-markdown (string-trim .text))))
                                  (unless (string-empty-p text)

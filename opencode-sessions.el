@@ -571,7 +571,8 @@ Otherwise prompt for file in current project."
      (t (opencode-api-send-message (opencode-session-id)
             `((agent . ,.name)
               ,(assoc 'model opencode-session-agent)
-              (variant . ,(or opencode-session-variant ""))
+              ,@(when opencode-session-variant
+                  `((variant . ,opencode-session-variant)))
               (parts . ,(nreverse
                          (cons `((type . text) (text . ,string))
                                opencode--extra-parts))))

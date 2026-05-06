@@ -33,6 +33,7 @@
 (require 'opencode-format-tool-calls)
 (require 'project)
 (require 'vtable)
+(require 'yank-media)
 
 (defvar opencode-session-control-mode-map
   (define-keymap
@@ -121,6 +122,9 @@ When non-nil, contains a cons cell (QUESTION-ID . QUESTIONS-VECTOR).")
   "Pending permission requests for this session buffer, as a list of plists.
 Each plist has keys :id, :session-id, :type, :title, and :marker.
 Requests are processed FIFO.")
+
+(defvar-local opencode--temp-files nil
+  "Temporary files to delete after sending or killing a session buffer.")
 
 (defvar opencode-session-buffers
   (make-hash-table :test 'equal)
@@ -367,6 +371,7 @@ Each element is (display-name . (provider-id provider-name model-id))."
   (visual-line-mode)
   (font-lock-mode -1)
   (cursor-intangible-mode)
+  (yank-media-handler "\\`image/" #'opencode--yank-image)
   (add-hook 'comint-input-filter-functions 'opencode--render-input-markdown nil t))
 
 (defun opencode-yank-code-block ()
@@ -446,6 +451,57 @@ Assign the overlay EXTRA-PROP with EXTRA-VALUE."
     (overlay-put ov 'modification-hooks '(opencode--remove-label))
     ov))
 
+(defun opencode--add-file-to-context (file &optional mime display-name)
+  "Add FILE to context with optional MIME and DISPLAY-NAME."
+  (let* ((display-name (or display-name
+                           (opencode--relative-path-for-display file)))
+         (mime (or mime (opencode--mimetype file)))
+         (url (concat "file://" file)))
+    (push `((type . file)
+            (filename . ,display-name)
+            (mime . ,mime)
+            (url . ,url))
+          opencode--extra-parts)
+    (opencode--insert-intangible display-name 'file-url url)
+    (insert " ")))
+
+(defun opencode--image-extension (mime)
+  "Return a file extension for image MIME."
+  (or (car (split-string (or (cadr (split-string mime "/")) "")
+                         "[;+]" t))
+      "img"))
+
+(defun opencode--yank-image (type data)
+  "Add pasted image DATA of MIME TYPE to the next prompt."
+  (unless (comint-after-pmark-p)
+    (user-error "Images can only be pasted into the current prompt"))
+  (let* ((mime (symbol-name type))
+         (extension (opencode--image-extension mime))
+         (file (make-temp-file "opencode-image-" nil
+                               (concat "." extension))))
+    (condition-case error
+        (progn
+          (let ((coding-system-for-write 'no-conversion))
+            (write-region data nil file nil 'silent))
+          (push file opencode--temp-files)
+          (opencode--add-file-to-context file mime (file-name-nondirectory file)))
+      (error
+       (ignore-errors (delete-file file))
+       (signal (car error) (cdr error))))))
+
+(defun opencode--delete-temp-files (files)
+  "Delete temporary FILES created by opencode."
+  (dolist (file files)
+    (when (and file (file-exists-p file))
+      (ignore-errors (delete-file file)))))
+
+(defun opencode--session-cleanup ()
+  "Clean up resources for the current session buffer."
+  (when-let ((process (get-buffer-process (current-buffer))))
+    (delete-process process))
+  (opencode--delete-temp-files opencode--temp-files)
+  (setq opencode--temp-files nil))
+
 (defmacro with-last-opencode-session (&rest body)
   "Run BODY with the last used opencode session buffer active."
   `(if opencode-last-session-buffer
@@ -465,16 +521,8 @@ Assign the overlay EXTRA-PROP with EXTRA-VALUE."
                                              "Add to context"
                                              (project-files project)
                                              nil
-                                             'file-name-history)))
-          (relative-name (opencode--relative-path-for-display file))
-          (url (concat "file://" file)))
-     (push `((type . file)
-             (filename . ,relative-name)
-             (mime . ,(opencode--mimetype file))
-             (url . ,url))
-           opencode--extra-parts)
-     (opencode--insert-intangible relative-name 'file-url url)
-     (insert " "))))
+                                             'file-name-history))))
+     (opencode--add-file-to-context file))))
 
 (defun opencode-add-file-dwim ()
   "If in Dired, add all marked files, or file at point if none marked.
@@ -551,33 +599,42 @@ Otherwise prompt for file in current project."
   "Send STRING as input to current opencode session."
   (opencode--highlight-input)
   (opencode--output "\n")
-  (let-alist opencode-session-agent
-    (cond
-     ((string-prefix-p "/" string)
-      (let ((space-pos (seq-position string ?\s)))
-        (opencode-api-execute-command (opencode-session-id)
+  (let ((extra-parts opencode--extra-parts)
+        (temp-files opencode--temp-files)
+        sent-message)
+    (setf opencode--extra-parts nil
+          opencode--temp-files nil)
+    (let-alist opencode-session-agent
+      (cond
+       ((string-prefix-p "/" string)
+        (let ((space-pos (seq-position string ?\s)))
+          (opencode-api-execute-command (opencode-session-id)
+              `((agent . ,.name)
+                (model . ,(concat .model.providerID "/" .model.modelID))
+                (command . ,(substring string 1 space-pos))
+                (arguments . ,(if space-pos
+                                  (substring string (1+ space-pos))
+                                "")))
+              _response)))
+       ((string-prefix-p "!" string)
+        (opencode-api-execute-shell (opencode-session-id)
             `((agent . ,.name)
-              (model . ,(concat .model.providerID "/" .model.modelID))
-              (command . ,(substring string 1 space-pos))
-              (arguments . ,(if space-pos
-                                (substring string (1+ space-pos))
-                              "")))
-            _response)))
-     ((string-prefix-p "!" string)
-      (opencode-api-execute-shell (opencode-session-id)
-          `((agent . ,.name)
-            (command . ,(substring string 1)))
-          _response))
-     (t (opencode-api-send-message (opencode-session-id)
+              (command . ,(substring string 1)))
+            _response))
+       (t
+        (setq sent-message t)
+        (opencode-api-send-message (opencode-session-id)
             `((agent . ,.name)
               ,(assoc 'model opencode-session-agent)
               ,@(when opencode-session-variant
                   `((variant . ,opencode-session-variant)))
               (parts . ,(nreverse
                          (cons `((type . text) (text . ,string))
-                               opencode--extra-parts))))
-            _result)))
-    (setf opencode--extra-parts nil)))
+                               extra-parts))))
+            _result
+          (opencode--delete-temp-files temp-files)))))
+    (unless sent-message
+      (opencode--delete-temp-files temp-files))))
 
 (defun opencode-session--message-updated (info)
   "Handle message.updated event with INFO."
@@ -847,11 +904,7 @@ POP-TO-BUFFER controls whether to pop to or switch to the session buffer."
             (puthash .id buffer opencode-session-buffers)
             (let ((proc (start-process "dummy" buffer nil)))
               (set-process-query-on-exit-flag proc nil)
-              (add-hook 'kill-buffer-hook
-                        (lambda ()
-                          (when (get-buffer-process (current-buffer))
-                            (delete-process)))
-                        nil t)
+              (add-hook 'kill-buffer-hook #'opencode--session-cleanup nil t)
               (opencode-insert-logo)
               (opencode-api-session-messages (.id)
                   messages

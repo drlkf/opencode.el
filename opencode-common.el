@@ -117,42 +117,44 @@ Returns \"-\" if SECONDS is nil."
 CANDIDATES is a list of lists, where the first element is the string to show,
 the second is the value to return, the third is the annotation to show, and
 the optional fourth element is a number to sort by."
-  (let* ((max-length (seq-max
-                      (mapcar (lambda (candidate)
-                                (length (car candidate)))
-                              candidates)))
-         (candidate-results (make-hash-table :test 'equal))
-         (has-sort-values nil)
-         (candidates (cl-loop for (name return-value maybe-annotation sort-value) in candidates
-                              for annotation = (or maybe-annotation "")
-                              for candidate = (concat name
-                                                      (propertize annotation 'invisible t))
-                              when sort-value do (setf has-sort-values t)
-                              do (puthash candidate return-value candidate-results)
-                              collect (propertize candidate
-                                                  'opencode-annotation
-                                                  (concat (make-string (+ 5 (- max-length
-                                                                               (length name)))
-                                                                       ?\s)
-                                                          annotation)
-                                                  'opencode-sort-value sort-value)))
-         (completion-extra-properties
-          `(:annotation-function
-            ,(lambda (candidate)
-               (get-text-property 0 'opencode-annotation candidate))
-            :display-sort-function
-            ,(when has-sort-values
-               (lambda (candidates)
-                 (sort candidates
-                       (lambda (a b)
-                         (< (get-text-property 0 'opencode-sort-value a)
-                            (get-text-property 0 'opencode-sort-value b)))))))))
-    (gethash
-     (completing-read
-      prompt
-      candidates
-      nil t)
-     candidate-results)))
+  (if candidates
+      (let* ((max-length (seq-max
+                          (mapcar (lambda (candidate)
+                                    (length (car candidate)))
+                                  candidates)))
+             (candidate-results (make-hash-table :test 'equal))
+             (has-sort-values nil)
+             (candidates (cl-loop for (name return-value maybe-annotation sort-value) in candidates
+                                  for annotation = (or maybe-annotation "")
+                                  for candidate = (concat name
+                                                          (propertize annotation 'invisible t))
+                                  when sort-value do (setf has-sort-values t)
+                                  do (puthash candidate return-value candidate-results)
+                                  collect (propertize candidate
+                                                      'opencode-annotation
+                                                      (concat (make-string (+ 5 (- max-length
+                                                                                   (length name)))
+                                                                           ?\s)
+                                                              annotation)
+                                                      'opencode-sort-value sort-value)))
+             (completion-extra-properties
+              `(:annotation-function
+                ,(lambda (candidate)
+                   (get-text-property 0 'opencode-annotation candidate))
+                :display-sort-function
+                ,(when has-sort-values
+                   (lambda (candidates)
+                     (sort candidates
+                           (lambda (a b)
+                             (< (get-text-property 0 'opencode-sort-value a)
+                                (get-text-property 0 'opencode-sort-value b)))))))))
+        (gethash
+         (completing-read
+          prompt
+          candidates
+          nil t)
+         candidate-results))
+    (message "%sNo completion candidates" prompt)))
 
 (defun opencode--format-questions (questions)
   "Format QUESTIONS showing ❓ prefix for each question."

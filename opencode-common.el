@@ -200,15 +200,18 @@ the optional fourth element is a number to sort by."
     (recenter)))
 
 (defun opencode--buttonize-file-references (string)
-  "Return STRING with existing file references turned into buttons."
+  "Return STRING with backticked file references turned into buttons."
   (let ((start 0)
-        (regexp "\\(`?\\)\\([[:alnum:]._~/][[:alnum:]@%_./~+-]*\\):\\([0-9]+\\)\\1")
+        (regexp "`\\([[:alnum:]._~/][[:alnum:]@%_./~+-]*\\)\\(?::\\([0-9]+\\)\\)?`")
         parts)
     (while (string-match regexp string start)
       (let* ((match-beg (match-beginning 0))
              (match-end (match-end 0))
-             (file (match-string 2 string))
-             (line (string-to-number (match-string 3 string)))
+             (file (match-string 1 string))
+             (line-string (match-string 2 string))
+             (line (if line-string
+                       (string-to-number line-string)
+                     1))
              (path (opencode--resolve-file-reference file)))
         (push (substring string start match-beg) parts)
         (push (if path
@@ -218,9 +221,11 @@ the optional fourth element is a number to sort by."
                    'action #'opencode--visit-file-location
                    'button-data (cons path line)
                    'follow-link t
-                   'help-echo (format "Open %s:%d in another window" file line)
+                   'help-echo (if line-string
+                                  (format "Open %s:%d in another window" file line)
+                                (format "Open %s in another window" file))
                    'mouse-face 'highlight)
-                (substring string match-beg match-end))
+                 (substring string match-beg match-end))
               parts)
         (setq start match-end)))
     (push (substring string start) parts)

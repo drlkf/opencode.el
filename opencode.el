@@ -267,6 +267,21 @@ Or nil to disable logging.")
                        event))
        (opencode--truncate-at-max-lines opencode-event-log-max-lines)))))
 
+(defun opencode--run-file-edited-hook (tool input)
+  "Run `opencode-file-edited-functions' for completed TOOL with INPUT."
+  (let-alist input
+    (dolist (file (pcase tool
+                    ((or "write" "edit") (when .filePath (list .filePath)))
+                    ("apply_patch" (opencode--apply-patch-edited-files .patchText))))
+      (run-hook-with-args 'opencode-file-edited-functions file))))
+
+(defun opencode--maybe-run-file-edited-hook (part)
+  "Run `opencode-file-edited-functions' if PART completed a file edit."
+  (let-alist part
+    (when (and (equal .type "tool")
+               (equal .state.status "completed"))
+      (opencode--run-file-edited-hook .tool .state.input))))
+
 (defun opencode--selection-change-hook (&optional _frame)
   "Hook to remove session from the alerted sessions list when it's visited.
 Also prompts for pending questions or permissions if any."
@@ -338,7 +353,9 @@ Also prompts for pending questions or permissions if any."
                  (session.updated (rename-buffer (format "*OpenCode: %s*" .info.title) t))
                  (session.deleted (delete-process))))))
           (session.error (opencode-session--display-error .sessionID .error.data.message))
-          (message.part.updated (opencode-session--update-part .part .delta .part.type))
+          (message.part.updated
+           (opencode--maybe-run-file-edited-hook .part)
+           (opencode-session--update-part .part .delta .part.type))
           (message.part.delta (opencode-session--update-part properties .delta
                                                              (gethash .partID opencode-part-type)))
           (message.updated (opencode-session--message-updated .info))

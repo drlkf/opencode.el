@@ -86,6 +86,17 @@ for title, message, variant (error/warning/info/success), and duration"
   :type 'boolean
   :group 'opencode)
 
+(defcustom opencode-file-edited-functions nil
+  "Hook run after opencode edits a file.
+This is an abnormal hook.  Each function receives one argument, FILE,
+the file path edited by a completed write, edit, or apply_patch tool call."
+  :type 'hook
+  :group 'opencode)
+
+(defconst opencode--apply-patch-file-header-regexp
+  "^\\*\\*\\* \\(Add File\\|Update File\\|Delete File\\): \\(.*\\)$"
+  "Regexp matching file operation headers in apply_patch input.")
+
 (defun opencode--time-ago (opencode-object type)
   "Return .time.TYPE value from OPENCODE-OBJECT, as seconds ago.
 Returns nil if the timestamp is not present."
@@ -104,6 +115,18 @@ Returns \"-\" if SECONDS is nil."
   (cl-case value
     ((nil :null 0) t)
     (t nil)))
+
+(defun opencode--apply-patch-edited-files (patch-text)
+  "Return files added or updated by PATCH-TEXT."
+  (when patch-text
+    (with-temp-buffer
+      (insert patch-text)
+      (goto-char (point-min))
+      (cl-loop while (re-search-forward opencode--apply-patch-file-header-regexp nil t)
+               for operation = (match-string 1)
+               for file = (match-string 2)
+               when (member operation '("Add File" "Update File"))
+               collect (opencode--resolve-file-reference file)))))
 
 (defun opencode--truncate-at-max-lines (max-lines)
   "Delete the first half of the buffer if we've reached MAX-LINES."

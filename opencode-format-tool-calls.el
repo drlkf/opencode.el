@@ -146,7 +146,7 @@
      (goto-char (point-min))
       (while (not (eobp))
         (cond
-        ((looking-at "\\*\\*\\* \\(Add File\\|Update File\\|Delete File\\): \\(.*\\)$")
+        ((looking-at opencode--apply-patch-file-header-regexp)
          (let ((beg (match-beginning 0))
                (end (match-end 0))
                (operation (match-string 1))

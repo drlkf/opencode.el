@@ -42,6 +42,8 @@
        (concat "apply_patch:\n"
                (opencode--format-apply-patch .patchText)
                "\n"))
+      ("write"
+       (format "write %s\n\n" .filePath))
       ("read"
        (if (and .offset .limit)
            (format "read %s [offset=%d, limit=%d]\n\n"

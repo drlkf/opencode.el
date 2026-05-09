@@ -653,16 +653,27 @@ Otherwise prompt for file in current project."
                  (assoc-delete-all .id opencode-assistant-messages))
          (push (cons .id nil) opencode-assistant-messages))))))
 
-(defun opencode--render-last-block (type start)
-  "Render block of TYPE (reasoning or text) since START with PROCESS."
-  (when (seq-contains-p '(reasoning text) type)
-    (let* ((end (opencode--session-process-position))
-           (inhibit-read-only t)
-           (text (opencode--render-markdown (buffer-substring start end))))
+(defun opencode--render-region (type start &optional end)
+  "Render TYPE markdown from START to END.
+END defaults to the process mark."
+  (setq end (or end (opencode--session-process-position)))
+  (when (and (seq-contains-p '(reasoning text) type)
+             (< start end))
+    (let ((inhibit-read-only t)
+          (text (buffer-substring-no-properties start end)))
+      (ignore-errors
+        (setf text (opencode--render-markdown text)))
       (delete-region start end)
       (cl-case type
         (reasoning (opencode--insert-reasoning-block text))
         (text (opencode--output text))))))
+
+(defun opencode--stream-line-start ()
+  "Return the current line start at process mark."
+  (save-excursion
+    (goto-char (opencode--session-process-position))
+    (let ((inhibit-field-text-motion t))
+      (line-beginning-position))))
 
 (defun opencode--maybe-insert-block-spacing ()
   "Ensure \n\n before block."
@@ -722,7 +733,7 @@ TYPE is text|reasoning|tool|step-finish"
                       (type)
                       (unless (eq type last-type)
                         (when last-start
-                          (opencode--render-last-block last-type last-start)
+                          (opencode--render-region last-type last-start)
                           (opencode--maybe-insert-block-spacing))
                         (setf (cdr message-parts) (cons type
                                                         (marker-position (process-mark process)))))))
@@ -731,12 +742,16 @@ TYPE is text|reasoning|tool|step-finish"
                        (not (string= type last-type)))
               (setf delta (string-trim-left delta)))
             (pcase type
-              ((and "reasoning" (guard delta))
-               (maybe-render-last-and-update-message-parts 'reasoning)
-               (opencode--insert-reasoning-block delta))
-              ((and "text" (guard delta))
-               (maybe-render-last-and-update-message-parts 'text)
-               (opencode--output delta))
+               ((and "reasoning" (guard delta))
+                (maybe-render-last-and-update-message-parts 'reasoning)
+                (let ((start (opencode--stream-line-start)))
+                  (opencode--insert-reasoning-block delta)
+                  (opencode--render-region 'reasoning start)))
+               ((and "text" (guard delta))
+                (maybe-render-last-and-update-message-parts 'text)
+                (let ((start (opencode--stream-line-start)))
+                  (opencode--output delta)
+                  (opencode--render-region 'text start)))
               ("tool" (maybe-render-last-and-update-message-parts 'tool)
                (when (and
                       ;; only when it first starts running
@@ -750,7 +765,7 @@ TYPE is text|reasoning|tool|step-finish"
                (opencode--maybe-insert-tool-output part))
               ("step-finish"
                (when (string= "stop" .reason)
-                 (opencode--render-last-block last-type last-start)
+                 (opencode--render-region last-type last-start)
                  (opencode--maybe-insert-block-spacing))))))))))
 
 (defface opencode-request-margin-highlight
@@ -956,7 +971,8 @@ Returns nil if point is before the first prompt."
      ,@body))
 
 (defmacro opencode--current-message-exchange (bindings &rest body)
-  "Run BODY with BINDINGS (user-id assistant-id) bound to the exchange ids at point."
+  "Run BODY with BINDINGS (user-id assistant-id)
+bound to the exchange ids at point."
   (declare (indent defun))
   (let ((user-id (car bindings))
         (assistant-id (cadr bindings)))

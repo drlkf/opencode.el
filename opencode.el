@@ -1,4 +1,4 @@
-;;; opencode.el --- Emacs interface to opencode -*- lexical-binding: t; -*-
+;;; opencode.el --- Emacs interface to opencode -*- lexical-binding: t; byte-compile-warnings: (not docstrings-wide); -*-
 
 ;; Copyright (C) 2025  Scott Zimmermann
 

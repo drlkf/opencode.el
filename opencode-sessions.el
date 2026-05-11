@@ -126,6 +126,9 @@ Requests are processed FIFO.")
 (defvar-local opencode--temp-files nil
   "Temporary files to delete after sending or killing a session buffer.")
 
+(defvar-local opencode--files-edited-this-turn nil
+  "Files edited by opencode during the current turn.")
+
 (defvar opencode-session-buffers
   (make-hash-table :test 'equal)
   "A mapping of session ids to Emacs buffers.")
@@ -889,7 +892,8 @@ TYPE is text|reasoning|tool|step-finish"
 
 (cl-defun opencode-open-session (session &key (pop-to-buffer t))
   "Open comint based shell for SESSION.
-POP-TO-BUFFER controls whether to pop to or switch to the session buffer."
+POP-TO-BUFFER controls whether to pop to or switch to the session buffer.
+Returns the buffer."
   (let-alist session
     (let ((old-buffer (gethash .id opencode-session-buffers)))
       (if (buffer-live-p old-buffer)

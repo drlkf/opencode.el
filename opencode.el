@@ -76,7 +76,7 @@ When nil, the command is constructed from `opencode-command',
 Set this to a custom command for special cases like nix:
   \"nix run github:numtide/nix-ai-tools#opencode -- serve --port 4096 --hostname localhost\""
   :type '(choice (const :tag "Construct from opencode-command" nil)
-                 (string :tag "Custom command"))
+          (string :tag "Custom command"))
   :group 'opencode)
 
 (defcustom opencode-auto-start-server t
@@ -259,13 +259,13 @@ Or nil to disable logging.")
   "Log EVENT of TYPE to the opencode log buffer."
   (when opencode-event-log-max-lines
     (with-current-buffer (get-buffer-create "*opencode-event-log*")
-     (save-excursion
-       (goto-char (point-max))
-       (insert (format "[%s] %s: %s\n"
-                       (format-time-string "%Y-%m-%d %H:%M:%S")
-                       type
-                       event))
-       (opencode--truncate-at-max-lines opencode-event-log-max-lines)))))
+      (save-excursion
+        (goto-char (point-max))
+        (insert (format "[%s] %s: %s\n"
+                        (format-time-string "%Y-%m-%d %H:%M:%S")
+                        type
+                        event))
+        (opencode--truncate-at-max-lines opencode-event-log-max-lines)))))
 
 (defun opencode--run-file-edited-hook (tool input)
   "Run `opencode-file-edited-functions' for completed TOOL with INPUT."
@@ -281,6 +281,35 @@ Or nil to disable logging.")
     (when (and (equal .type "tool")
                (equal .state.status "completed"))
       (opencode--run-file-edited-hook .tool .state.input))))
+
+(defun opencode--message-summary-diff-files (info)
+  "Return file names from INFO summary diffs."
+  (when-let ((diffs (map-nested-elt info '(summary diffs))))
+    (delq nil
+          (mapcar (lambda (diff)
+                    (opencode--resolve-file-reference
+                     (alist-get 'file diff)))
+                  (seq-into diffs 'list)))))
+
+(defun opencode--record-files-edited-this-turn (info)
+  "Record INFO summary diff files for the session's current turn."
+  (let-alist info
+    (when (and .sessionID (map-nested-elt info '(summary diffs)))
+      (let ((buffer (gethash .sessionID opencode-session-buffers))
+            (files (opencode--message-summary-diff-files info)))
+        (when (buffer-live-p buffer)
+          (with-current-buffer buffer
+            (setq opencode--files-edited-this-turn files)))))))
+
+(defun opencode--maybe-run-files-finished-editing-hook (session-id)
+  "Run `opencode-files-finished-editing-functions' for SESSION-ID's pending files."
+  (when-let ((buffer (gethash session-id opencode-session-buffers)))
+    (when (buffer-live-p buffer)
+      (with-current-buffer buffer
+        (when opencode--files-edited-this-turn
+          (let ((files opencode--files-edited-this-turn))
+            (setq opencode--files-edited-this-turn nil)
+            (run-hook-with-args 'opencode-files-finished-editing-functions files)))))))
 
 (defun opencode--selection-change-hook (&optional _frame)
   "Hook to remove session from the alerted sessions list when it's visited.
@@ -317,19 +346,22 @@ Also prompts for pending questions or permissions if any."
       (let-alist properties
         (cl-case msg-type
           (tui.toast.show (opencode--toast-show properties))
-          (session.idle (opencode-api-session (.sessionID)
-                            session
-                          (let ((buffer (gethash .sessionID opencode-session-buffers)))
-                            (with-current-buffer buffer
-                              (opencode--show-prompt))
-                            (unless (or
-                                     (opencode--buffer-active-p buffer)
-                                     ;; don't show alert for subagent sessions
-                                     (alist-get 'parentID session))
-                              (opencode--toast-show `((title . "OpenCode Finished")
-                                                      (message . ,(alist-get 'title session))
-                                                      (variant . "success")))
-                              (push session opencode-alerted-sessions)))))
+          (session.idle
+           (opencode--maybe-run-files-finished-editing-hook .sessionID)
+           (opencode-api-session (.sessionID)
+               session
+             (let ((buffer (gethash .sessionID opencode-session-buffers)))
+               (when (buffer-live-p buffer)
+                 (with-current-buffer buffer
+                   (opencode--show-prompt)))
+               (unless (or
+                        (opencode--buffer-active-p buffer)
+                        ;; don't show alert for subagent sessions
+                        (alist-get 'parentID session))
+                 (opencode--toast-show `((title . "OpenCode Finished")
+                                         (message . ,(alist-get 'title session))
+                                         (variant . "success")))
+                 (push session opencode-alerted-sessions)))))
           (session.status (pcase .status.type
                             ((or "busy" "idle")
                              (opencode-session--set-status .sessionID .status.type))
@@ -337,10 +369,10 @@ Also prompts for pending questions or permissions if any."
                              (opencode-api-session (.sessionID)
                                  session
                                (opencode--toast-show `((title . ,(concat "OpenCode: "
-                                                                  (alist-get 'title session)))
+                                                                         (alist-get 'title session)))
                                                        (message . ,(format "%s\n\nRetry #%d"
-                                                                    .status.message
-                                                                    .status.attempt))
+                                                                           .status.message
+                                                                           .status.attempt))
                                                        (variant . "warning")))))))
           ((session.created session.updated session.deleted)
            (dolist (buffer (map-elt opencode--session-control-buffers .info.projectID))
@@ -358,7 +390,9 @@ Also prompts for pending questions or permissions if any."
            (opencode-session--update-part .part .delta .part.type))
           (message.part.delta (opencode-session--update-part properties .delta
                                                              (gethash .partID opencode-part-type)))
-          (message.updated (opencode-session--message-updated .info))
+          (message.updated
+           (opencode--record-files-edited-this-turn .info)
+           (opencode-session--message-updated .info))
           (permission.asked
            (opencode--permission-request
             .id .sessionID .permission

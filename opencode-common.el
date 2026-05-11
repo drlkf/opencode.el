@@ -96,6 +96,13 @@ the file path edited by a completed write, edit, or apply_patch tool call."
   :type 'hook
   :group 'opencode)
 
+(defcustom opencode-files-finished-editing-functions nil
+  "Run hooks after opencode finishes editing files.
+This is an abnormal hook.  Each function receives one argument, FILES,
+the list of file paths from a message summary diff."
+  :type 'hook
+  :group 'opencode)
+
 (defconst opencode--apply-patch-file-header-regexp
   "^\\*\\*\\* \\(Add File\\|Update File\\|Delete File\\): \\(.*\\)$"
   "Regexp matching file operation headers in apply_patch input.")
@@ -324,7 +331,8 @@ the optional fourth element is a number to sort by."
   (with-current-buffer (find-file-noselect file)
     (revert-buffer t t t)
     (indent-region (point-min) (point-max))
-    (save-buffer)))
+    (when (buffer-modified-p)
+      (save-buffer))))
 
 (defun opencode--reload-elisp-file (file)
   "Reload elisp FILE after LLM edits."

@@ -95,7 +95,7 @@ you select.
 
 * Session Management
 :PROPERTIES:
-:CUSTOM_ID:       6679896c-5b9d-4e87-9e03-6ed060dec278
+:CUSTOM_ID: 6679896c-5b9d-4e87-9e03-6ed060dec278
 :END:
 [[file:screenshots/session_management.png]]
 

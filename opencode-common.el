@@ -87,7 +87,9 @@ for title, message, variant (error/warning/info/success), and duration"
   :group 'opencode)
 
 (defcustom opencode-file-edited-functions
-  '(opencode--indent-file opencode--reload-elisp-file)
+  '(opencode--fix-parens
+    opencode--indent-file
+    opencode--reload-elisp-file)
   "Hook run after opencode edits a file.
 This is an abnormal hook.  Each function receives one argument, FILE,
 the file path edited by a completed write, edit, or apply_patch tool call."
@@ -321,6 +323,24 @@ the optional fourth element is a number to sort by."
         (load-file file)
       (error
        (message "Error reloading %s after LLM edit: %s" file err)))))
+
+(defun opencode--fix-parens (file)
+  "Use parinfer to fix parens in FILE after LLM edits."
+  (when (and (or (string-suffix-p ".el" file)
+                 (string-suffix-p ".lisp" file))
+             (require 'parinfer-rust-mode nil t))
+    (declare-function parinfer-rust--set-default-state "parinfer-rust-mode")
+    (declare-function parinfer-rust--execute "parinfer-rust-mode")
+    (defvar parinfer-rust--mode)
+    (with-current-buffer (find-file-noselect file)
+      (revert-buffer t t t)
+      (condition-case nil
+          (check-parens)
+        (error
+         (parinfer-rust--set-default-state)
+         (let ((parinfer-rust--mode "indent"))
+           (parinfer-rust--execute))
+         (save-buffer))))))
 
 (provide 'opencode-common)
 ;;; opencode-common.el ends here

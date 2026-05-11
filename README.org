@@ -21,12 +21,18 @@ of advantages over the official TUI:
 
 2) Emacs integration
 
+   - runs =opencode-file-edited-functions= after edit tool calls. The default
+     hooks will:
+     + fix parentheses with parinfer if =parinfer-rust-mode= is installed after
+       edits to emacs lisp and common lisp files
+     + fix indentation using =indent-region=
+     + reload file after edits to emacs lisp files
    - add any emacs buffer to chat context with =opencode-add-buffer-dwim=
    - add files from dired to context with =opencode-add-file-dwim=
    - add selected region to context with =opencode-add-region=
    - integration with magit is possible, =opencode-new-worktree= will create a new
      git branch and worktree for the current project, and start an opencode session in it
-   - file:line references in LLM output are turned into clickable buttons
+   - =`file`= and file:line references in LLM output are turned into clickable buttons
    - use =dabbrev-expand= in the chat window to complete long variable or function
      names from your code buffers
 
@@ -223,3 +229,4 @@ from the shared folder.
 - =opencode-server-username= and =opencode-server-password= configure how to authenticate to the opencode server
 - the =opencode-faces= group configures faces used when displaying sessions
 - =opencode-toast-function= is used to show toast notifications
+- =opencode-file-edited-functions= is a hook run after edit tool calls

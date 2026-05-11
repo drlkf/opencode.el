@@ -100,6 +100,10 @@ the file path edited by a completed write, edit, or apply_patch tool call."
   "^\\*\\*\\* \\(Add File\\|Update File\\|Delete File\\): \\(.*\\)$"
   "Regexp matching file operation headers in apply_patch input.")
 
+(defconst opencode--apply-patch-move-to-regexp
+  "^\\*\\*\\* Move to: \\(.*\\)$"
+  "Regexp matching move destination headers in apply_patch input.")
+
 (defun opencode--time-ago (opencode-object type)
   "Return .time.TYPE value from OPENCODE-OBJECT, as seconds ago.
 Returns nil if the timestamp is not present."
@@ -129,7 +133,13 @@ Returns \"-\" if SECONDS is nil."
                for operation = (match-string 1)
                for file = (match-string 2)
                when (member operation '("Add File" "Update File"))
-               collect (opencode--resolve-file-reference file)))))
+               collect (opencode--resolve-file-reference
+                        (or (and (equal operation "Update File")
+                                 (save-excursion
+                                   (forward-line 1)
+                                   (when (looking-at opencode--apply-patch-move-to-regexp)
+                                     (match-string 1))))
+                            file))))))
 
 (defun opencode--truncate-at-max-lines (max-lines)
   "Delete the first half of the buffer if we've reached MAX-LINES."

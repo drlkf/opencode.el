@@ -87,7 +87,7 @@ for title, message, variant (error/warning/info/success), and duration"
   :group 'opencode)
 
 (defcustom opencode-file-edited-functions
-  '(opencode--indent-file)
+  '(opencode--indent-file opencode--reload-elisp-file)
   "Hook run after opencode edits a file.
 This is an abnormal hook.  Each function receives one argument, FILE,
 the file path edited by a completed write, edit, or apply_patch tool call."
@@ -313,6 +313,14 @@ the optional fourth element is a number to sort by."
     (revert-buffer t t t)
     (indent-region (point-min) (point-max))
     (save-buffer)))
+
+(defun opencode--reload-elisp-file (file)
+  "Reload elisp FILE after LLM edits."
+  (when (string-suffix-p ".el" file)
+    (condition-case err
+        (load-file file)
+      (error
+       (message "Error reloading %s after LLM edit: %s" file err)))))
 
 (provide 'opencode-common)
 ;;; opencode-common.el ends here

@@ -86,7 +86,8 @@ for title, message, variant (error/warning/info/success), and duration"
   :type 'boolean
   :group 'opencode)
 
-(defcustom opencode-file-edited-functions nil
+(defcustom opencode-file-edited-functions
+  '(opencode--indent-file)
   "Hook run after opencode edits a file.
 This is an abnormal hook.  Each function receives one argument, FILE,
 the file path edited by a completed write, edit, or apply_patch tool call."
@@ -305,6 +306,13 @@ the optional fourth element is a number to sort by."
   (and buffer
        (eq buffer (window-buffer (selected-window)))
        (frame-focus-state (window-frame (selected-window)))))
+
+(defun opencode--indent-file (file)
+  "Indent FILE with Emacs."
+  (with-current-buffer (find-file-noselect file)
+    (revert-buffer t t t)
+    (indent-region (point-min) (point-max))
+    (save-buffer)))
 
 (provide 'opencode-common)
 ;;; opencode-common.el ends here

@@ -14,7 +14,7 @@ DO NOT byte-compile to check for warnings. After you are finished you will be
 presented all warnings and errors from emacs' flycheck, including byte compiler
 warnings.
 
-DO use emacsclient to perform runtime verification that the code you edited
+DO use emacs_eval_elisp to perform runtime verification that the code you edited
 works as expected.
 
 ### Async HTTP Pattern

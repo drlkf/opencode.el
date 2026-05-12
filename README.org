@@ -39,6 +39,7 @@ of advantages over the official TUI:
    - =`file`= and file:line references in LLM output are turned into clickable buttons
    - use =dabbrev-expand= in the chat window to complete long variable or function
      names from your code buffers
+   - I use with [[https://codeberg.org/sczi/eval-elisp-mcp][eval-elisp-mcp]] when developing in elisp.
 
 * Demo
 A brief demo showing starting opencode, viewing a past session, sharing it,

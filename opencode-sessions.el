@@ -309,15 +309,19 @@ Each element is (display-name . (provider-id provider-name model-id))."
   "Insert an opencode slash command."
   (interactive)
   (if (= (point) (cdr comint-last-prompt))
-      (let ((command (opencode--annotated-completion
-                      "Slash command: "
-                      (cl-loop for command in opencode-slash-commands
-                               collect (let-alist command
-                                         (list
-                                          .name
-                                          .name
-                                          .description))))))
-        (insert (concat "/" command)))
+      (let* ((directory (opencode--normalize-directory default-directory))
+             (commands (alist-get directory opencode--slash-commands-by-directory
+                                  nil nil #'string=))
+             (command (opencode--annotated-completion
+                       "Slash command: "
+                       (cl-loop for command in commands
+                                collect (let-alist command
+                                          (list
+                                           .name
+                                           .name
+                                           .description))))))
+        (when command
+          (insert (concat "/" command))))
     (call-interactively #'self-insert-command)))
 
 (defun opencode--session-status-indicator ()

@@ -28,8 +28,8 @@
 (defvar opencode-agents nil
   "List of available agents excluding hidden agents.")
 
-(defvar opencode-slash-commands nil
-  "List of available slash commands.")
+(defvar opencode--slash-commands-by-directory nil
+  "Alist mapping normalized project directories to available slash commands.")
 
 (defvar opencode-alerted-sessions nil
   "List of unvisited idle sessions.")
@@ -51,6 +51,10 @@
 
 (defvar opencode--session-control-buffers nil
   "An alist mapping of projectIDs to session control buffers for that project.")
+
+(defun opencode--normalize-directory (directory)
+  "Return DIRECTORY as a canonical directory name."
+  (file-name-as-directory (file-truename directory)))
 
 (defcustom opencode-toast-function 'opencode--default-toast-show
   "Function to use to show toast notifications.

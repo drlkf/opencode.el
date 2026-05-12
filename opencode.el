@@ -180,16 +180,15 @@ if `opencode-auto-start-server' is non-nil."
   (when opencode--event-subscriptions
     (user-error "Already connected"))
   (setq opencode-api-url (format "http://%s:%d" host port))
+  (setq opencode--slash-commands-by-directory nil)
   (opencode--fetch-agents)
-  (opencode-api-commands commands
-    (setq opencode-slash-commands commands))
   (opencode-api-configured-providers result
     (setq opencode-providers (alist-get 'providers result)))
   (message "Connected to %s" opencode-api-url))
 
 (defun opencode-open-project (directory)
   "Open sessions control buffer for DIRECTORY."
-  (opencode-process-events directory)
+  (opencode--connect-directory directory)
   (let ((buffer-name (format "*OpenCode Sessions in %s*" directory)))
     (unless (get-buffer buffer-name)
       (with-current-buffer (get-buffer-create buffer-name)
@@ -400,7 +399,8 @@ Also prompts for pending questions or permissions if any."
   (when (process-live-p opencode--process)
     (set-process-sentinel opencode--process nil)
     (kill-process opencode--process))
-  (setq opencode--event-subscriptions nil))
+  (setq opencode--event-subscriptions nil
+        opencode--slash-commands-by-directory nil))
 
 (defun opencode--fetch-agents ()
   "Fetch available agents from server and filter out hidden agents."
@@ -418,7 +418,7 @@ Without it will use a default title and then automatically generate one."
            (read-string "Title: "))))
   (opencode-autoconnect
    (lambda ()
-     (opencode-process-events default-directory)
+     (opencode--connect-directory default-directory)
      (opencode-api-create-session (if title
                                       `((title . ,title))
                                     (make-hash-table))
@@ -506,9 +506,15 @@ If point is before the first prompt, creates a new session instead."
          "Restored all edits in session"
        "Failed to restore edits"))))
 
-(defun opencode-process-events (directory)
-  "Connect to the opencode event stream and process all events for DIRECTORY."
-  (setf directory (file-name-as-directory (file-truename directory)))
+(defun opencode--connect-directory (directory)
+  "Connect to the opencode event stream and load state for DIRECTORY."
+  (setf directory (opencode--normalize-directory directory))
+  (unless (assoc directory opencode--slash-commands-by-directory)
+    (let ((default-directory directory))
+      (opencode-api-commands commands
+        (setf (alist-get directory opencode--slash-commands-by-directory
+                         nil nil #'string=)
+              commands))))
   (unless (rassoc directory opencode--event-subscriptions)
     (let ((process
            (plz-media-type-request

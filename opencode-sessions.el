@@ -358,7 +358,6 @@ Each element is (display-name . (provider-id provider-name model-id))."
 (define-derived-mode opencode-session-mode comint-mode "OpenCode"
   "Major mode for interacting with an opencode session."
   (setq-local comint-use-prompt-regexp nil
-              mode-line-process '(:eval (opencode--session-status-indicator))
               comint-input-sender 'opencode--send-input
               comint-highlight-input nil
               left-margin-width (1+ left-margin-width))
@@ -938,7 +937,8 @@ Returns the buffer."
                                                     agent)
                                                   (or agents
                                                       (copy-tree opencode-agents)))
-                  opencode-session-agent (or agent (car opencode-session-agents)))
+                  opencode-session-agent (or agent (car opencode-session-agents))
+                  mode-line-process '(:eval (opencode--session-status-indicator)))
             (add-hook 'fill-nobreak-predicate #'opencode--in-label-p nil t)
             (puthash .id buffer opencode-session-buffers)
             (let ((proc (start-process "dummy" buffer nil)))

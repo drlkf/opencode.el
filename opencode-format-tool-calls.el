@@ -62,6 +62,8 @@
        (concat (opencode--format-questions (alist-get 'questions input)) "\n\n"))
       ((and "task" (guard (string= "explore" .subagent_type)))
        (format "🔍 Explore: %s\n\n" .description))
+      ("task"
+       (format "🤖 Subagent Task: %s\n\n" .description))
       (_ (if (= 1 (length input))
              (format "%s %s\n\n" tool (cdar input))
            ;; Multiple arguments: tool-name, then arg-name: value per line

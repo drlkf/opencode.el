@@ -8,53 +8,14 @@ Interact with the user's emacs process to perform introspection, find
 information about functions, values of variables etc. Use it to run and verify
 that code you write is working correctly.
 
-## Build & Verification Commands
+## Verification Commands
 
-After you are finished editing any .el file, run `./check.sh` and fix any warnings.
+DO NOT byte-compile to check for warnings. After you are finished you will be
+presented all warnings and errors from emacs' flycheck, including byte compiler
+warnings.
 
-### Naming Conventions
-
-| Type | Pattern | Example |
-|------|---------|---------|
-| Public function | `opencode-<name>` | `opencode-process-events` |
-| Private function | `opencode--<name>` | `opencode--log-event` |
-| Public variable | `opencode-<name>` | `opencode-host` |
-| Private variable | `opencode--<name>` | `opencode--plz-event-request` |
-| Buffer-local var | `opencode-<name>` with `defvar-local` | `opencode-session-id` |
-
-### Customization Variables
-
-Use `defcustom` for user-configurable values:
-
-```elisp
-(defcustom opencode-host "localhost"
-  "Hostname for the opencode server."
-  :type 'string
-  :group 'opencode)
-```
-
-### Docstrings
-
-- First line: imperative sentence, fits in 80 chars
-- Mention all arguments.
-- Arguments in CAPS: `"Send STRING as input using PROC."`
-
-### Control Flow Patterns
-
-**Use `let-alist` for JSON/alist destructuring:**
-```elisp
-(let-alist properties
-  (notifications-notify
-   :title .title
-   :body .message))
-```
-
-**Use `pcase` for pattern matching:**
-```elisp
-(pcase .type
-  ("text" (insert .text))
-  ("reasoning" (opencode--insert-reasoning-block text)))
-```
+DO use emacsclient to perform runtime verification that the code you edited
+works as expected.
 
 ### Async HTTP Pattern
 
@@ -73,16 +34,3 @@ This codebase uses macro-generated async API calls:
 - Use `error` for fatal conditions
 - Log warnings to dedicated buffer: `*opencode-event-log*`
   use `(opencode--log-event "WARNING TYPE" "msg")`
-
----
-
-## Architecture Notes
-
-### File Responsibilities
-
-| File                   | Role                                               |
-|------------------------|----------------------------------------------------|
-| `opencode.el`          | Entry point, SSE event handling, notifications     |
-| `opencode-api.el`      | HTTP API macro generator, endpoint definitions     |
-| `opencode-sessions.el` | Session UI, comint integration, markdown           |
-| `opencode-common.el`   | Utility functions and variable needed project-wide |

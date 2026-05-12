@@ -5,19 +5,6 @@
 ;; Author: Scott Zimmermann <sczi@disroot.org>
 ;; Keywords: internal
 
-;; This program is free software; you can redistribute it and/or modify
-;; it under the terms of the GNU General Public License as published by
-;; the Free Software Foundation, either version 3 of the License, or
-;; (at your option) any later version.
-
-;; This program is distributed in the hope that it will be useful,
-;; but WITHOUT ANY WARRANTY; without even the implied warranty of
-;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-;; GNU General Public License for more details.
-
-;; You should have received a copy of the GNU General Public License
-;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
-
 ;;; Commentary:
 
 ;; Code for managing opencode sessions
@@ -639,6 +626,35 @@ Otherwise prompt for file in current project."
     (unless sent-message
       (opencode--delete-temp-files temp-files))))
 
+(defun opencode-session--send-synthetic-input (string)
+  "Send STRING to the current opencode session.
+Preserve any pending input context while sending STRING as a plain prompt."
+  (let* ((process (get-buffer-process (current-buffer)))
+         (pending-prompt (copy-marker (process-mark process) t))
+         (original-point (copy-marker (point) t))
+         (prompt-start (opencode--session-process-position))
+         start
+         end)
+    (unwind-protect
+        (progn
+          (let ((inhibit-read-only t))
+            (save-excursion
+              (goto-char prompt-start)
+              (setq start (point))
+              (insert string)
+              (setq end (point))))
+          (set-marker (process-mark process) end)
+          (let ((comint-last-input-start start)
+                (comint-last-input-end end)
+                (opencode--extra-parts nil)
+                (opencode--temp-files nil))
+            (opencode--send-input process string)
+            (opencode--maybe-insert-block-spacing)))
+      (set-marker (process-mark process) pending-prompt)
+      (goto-char original-point)
+      (set-marker pending-prompt nil)
+      (set-marker original-point nil))))
+
 (defun opencode-session--message-updated (info)
   "Handle message.updated event with INFO."
   (let-alist info
@@ -745,16 +761,16 @@ TYPE is text|reasoning|tool|step-finish"
                        (not (string= type last-type)))
               (setf delta (string-trim-left delta)))
             (pcase type
-               ((and "reasoning" (guard delta))
-                (maybe-render-last-and-update-message-parts 'reasoning)
-                (let ((start (opencode--stream-line-start)))
-                  (opencode--insert-reasoning-block delta)
-                  (opencode--render-region 'reasoning start)))
-               ((and "text" (guard delta))
-                (maybe-render-last-and-update-message-parts 'text)
-                (let ((start (opencode--stream-line-start)))
-                  (opencode--output delta)
-                  (opencode--render-region 'text start)))
+              ((and "reasoning" (guard delta))
+               (maybe-render-last-and-update-message-parts 'reasoning)
+               (let ((start (opencode--stream-line-start)))
+                 (opencode--insert-reasoning-block delta)
+                 (opencode--render-region 'reasoning start)))
+              ((and "text" (guard delta))
+               (maybe-render-last-and-update-message-parts 'text)
+               (let ((start (opencode--stream-line-start)))
+                 (opencode--output delta)
+                 (opencode--render-region 'text start)))
               ("tool" (maybe-render-last-and-update-message-parts 'tool)
                (when (and
                       ;; only when it first starts running
@@ -852,9 +868,9 @@ TYPE is text|reasoning|tool|step-finish"
             (diff-hunk-prev)
             ;; Hide the diff hunk headers
             (add-text-properties (line-beginning-position)
-                               (min (point-max)
-                                    (1+ (line-end-position)))
-                               '(invisible t)))
+                                 (min (point-max)
+                                      (1+ (line-end-position)))
+                                 '(invisible t)))
         (error nil)))))
 
 (defun opencode--session-process-position ()

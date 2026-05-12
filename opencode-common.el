@@ -5,19 +5,6 @@
 ;; Author: Scott Zimmermann <sczi@disroot.org>
 ;; Keywords: internal
 
-;; This program is free software; you can redistribute it and/or modify
-;; it under the terms of the GNU General Public License as published by
-;; the Free Software Foundation, either version 3 of the License, or
-;; (at your option) any later version.
-
-;; This program is distributed in the hope that it will be useful,
-;; but WITHOUT ANY WARRANTY; without even the implied warranty of
-;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-;; GNU General Public License for more details.
-
-;; You should have received a copy of the GNU General Public License
-;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
-
 ;;; Commentary:
 
 ;; Common code shared through the package
@@ -29,6 +16,7 @@
 (require 'map)
 (require 'markdown-mode)
 (require 'notifications)
+(require 'opencode-flycheck)
 (require 'project)
 (require 'savehist)
 
@@ -96,7 +84,8 @@ the file path edited by a completed write, edit, or apply_patch tool call."
   :type 'hook
   :group 'opencode)
 
-(defcustom opencode-files-finished-editing-functions nil
+(defcustom opencode-files-finished-editing-functions
+  '(opencode--flycheck-edited-files)
   "Run hooks after opencode finishes editing files.
 This is an abnormal hook.  Each function receives one argument, FILES,
 the list of file paths from a message summary diff."
@@ -268,7 +257,7 @@ the optional fourth element is a number to sort by."
                                   (format "Open %s:%d in another window" file line)
                                 (format "Open %s in another window" file))
                    'mouse-face 'highlight)
-                 (substring string match-beg match-end))
+                (substring string match-beg match-end))
               parts)
         (setq start match-end)))
     (push (substring string start) parts)

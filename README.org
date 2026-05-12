@@ -27,6 +27,10 @@ of advantages over the official TUI:
        edits to emacs lisp and common lisp files
      + fix indentation using =indent-region=
      + reload file after edits to emacs lisp files
+   - calls =opencode-files-finished-editing-functions= with a list of all files
+     edited in the last assistant turn. The default hook will run flycheck and
+     report all errors and warnings in the edited files to the LLM if you have
+     flycheck setup.
    - add any emacs buffer to chat context with =opencode-add-buffer-dwim=
    - add files from dired to context with =opencode-add-file-dwim=
    - add selected region to context with =opencode-add-region=
@@ -35,9 +39,6 @@ of advantages over the official TUI:
    - =`file`= and file:line references in LLM output are turned into clickable buttons
    - use =dabbrev-expand= in the chat window to complete long variable or function
      names from your code buffers
-
-   Not much so far, but my initial focus has just been to make a usable UI,
-   while deeper emacs integration will come over time.
 
 * Demo
 A brief demo showing starting opencode, viewing a past session, sharing it,

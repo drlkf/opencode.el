@@ -142,7 +142,7 @@ Only starts new one if `opencode-auto-start-server' is non-nil.
 Run ON-CONNECT after connected."
   (cond
    ;; Already connected
-   (opencode--event-subscriptions
+   (opencode--event-subscription
     (funcall on-connect))
    ;; We started a server process that's still alive
    ((process-live-p opencode--process)
@@ -177,10 +177,11 @@ if `opencode-auto-start-server' is non-nil."
   (interactive
    (list (read-string "Host: " opencode-host)
          (read-number "Port: " opencode-port)))
-  (when opencode--event-subscriptions
+  (when opencode--event-subscription
     (user-error "Already connected"))
   (setq opencode-api-url (format "http://%s:%d" host port))
   (setq opencode--slash-commands-by-directory nil)
+  (opencode--subscribe-global-events)
   (opencode--fetch-agents)
   (opencode-api-configured-providers result
     (setq opencode-providers (alist-get 'providers result)))
@@ -188,7 +189,7 @@ if `opencode-auto-start-server' is non-nil."
 
 (defun opencode-open-project (directory)
   "Open sessions control buffer for DIRECTORY."
-  (opencode--connect-directory directory)
+  (opencode--download-slash-commands directory)
   (let ((buffer-name (format "*OpenCode Sessions in %s*" directory)))
     (unless (get-buffer buffer-name)
       (with-current-buffer (get-buffer-create buffer-name)
@@ -322,12 +323,11 @@ Also prompts for pending questions or permissions if any."
 ;; request arrived but Emacs did not have OS focus at the time.
 (add-function :after after-focus-change-function #'opencode--selection-change-hook)
 
-(defun opencode--handle-message (event)
-  "Handle a message EVENT from opencode server."
-  (let* ((data (json-read-from-string (plz-event-source-event-data event)))
-         (msg-type (intern (alist-get 'type data)))
+(defun opencode--handle-message (data)
+  "Handle decoded message DATA from opencode server."
+  (let* ((msg-type (intern (alist-get 'type data)))
          (properties (alist-get 'properties data)))
-    (unless (memq msg-type '(file.watcher.updated server.heartbeat session.diff))
+    (unless (memq msg-type '(file.watcher.updated session.diff sync))
       (opencode--log-event "MESSAGE" data)
       (let-alist properties
         (cl-case msg-type
@@ -389,17 +389,44 @@ Also prompts for pending questions or permissions if any."
            (opencode--question-request .id .sessionID .questions))
           (otherwise (opencode--log-event "WARNING" "unhandled message type")))))))
 
+(defun opencode--handle-global-event (event)
+  "Handle a global wrapper EVENT from opencode server."
+  (let* ((data (json-read-from-string (plz-event-source-event-data event)))
+         (directory (alist-get 'directory data))
+         (payload (alist-get 'payload data)))
+    (if (and directory payload)
+        (let ((default-directory (opencode--normalize-directory directory)))
+          (opencode--handle-message payload))
+      (unless (string= "server.heartbeat" (alist-get 'type payload))
+        (opencode--log-event "WARNING GLOBAL EVENT" data)))))
+
+(defun opencode--subscribe-global-events ()
+  "Subscribe to the global opencode event stream."
+  (setq opencode--event-subscription
+        (plz-media-type-request
+          'get (concat opencode-api-url "/global/event")
+          :as `(media-types
+                ((text/event-stream
+                  . ,(plz-event-source:text/event-stream
+                      :events `((open . ,(lambda (event)
+                                           (opencode--log-event "OPEN" event)))
+                                (message . opencode--handle-global-event)
+                                (close . opencode-disconnect))))))
+          :headers (delq nil (list (opencode--auth-header)))
+          :then 'opencode-disconnect
+          :else 'opencode-disconnect))
+  (set-process-query-on-exit-flag opencode--event-subscription nil))
+
 (defun opencode-disconnect (&optional event)
   "Disconnect from opencode server, optionally log EVENT."
   (interactive)
   (opencode--log-event "DISCONNECT" event)
-  (cl-loop for (process) in opencode--event-subscriptions
-           when (process-live-p process)
-           do (kill-process process))
+  (when (process-live-p opencode--event-subscription)
+    (kill-process opencode--event-subscription))
   (when (process-live-p opencode--process)
     (set-process-sentinel opencode--process nil)
     (kill-process opencode--process))
-  (setq opencode--event-subscriptions nil
+  (setq opencode--event-subscription nil
         opencode--slash-commands-by-directory nil))
 
 (defun opencode--fetch-agents ()
@@ -418,7 +445,7 @@ Without it will use a default title and then automatically generate one."
            (read-string "Title: "))))
   (opencode-autoconnect
    (lambda ()
-     (opencode--connect-directory default-directory)
+     (opencode--download-slash-commands default-directory)
      (opencode-api-create-session (if title
                                       `((title . ,title))
                                     (make-hash-table))
@@ -506,34 +533,15 @@ If point is before the first prompt, creates a new session instead."
          "Restored all edits in session"
        "Failed to restore edits"))))
 
-(defun opencode--connect-directory (directory)
-  "Connect to the opencode event stream and load state for DIRECTORY."
+(defun opencode--download-slash-commands (directory)
+  "Download slash commands for DIRECTORY."
   (setf directory (opencode--normalize-directory directory))
   (unless (assoc directory opencode--slash-commands-by-directory)
     (let ((default-directory directory))
       (opencode-api-commands commands
         (setf (alist-get directory opencode--slash-commands-by-directory
                          nil nil #'string=)
-              commands))))
-  (unless (rassoc directory opencode--event-subscriptions)
-    (let ((process
-           (plz-media-type-request
-             'get (concat opencode-api-url "/event")
-             :as `(media-types
-                   ((text/event-stream
-                     . ,(plz-event-source:text/event-stream
-                         :events `((open . ,(lambda (event)
-                                              (opencode--log-event "OPEN" event)))
-                                   (message . ,(lambda (event)
-                                                 (let ((default-directory directory))
-                                                   (opencode--handle-message event))))
-                                   (close . opencode-disconnect))))))
-             :headers `(("x-opencode-directory" . ,directory)
-                        ,(opencode--auth-header))
-             :then 'opencode-disconnect
-             :else 'opencode-disconnect)))
-      (set-process-query-on-exit-flag process nil)
-      (push (cons process directory) opencode--event-subscriptions))))
+              commands)))))
 
 (provide 'opencode)
 ;;; opencode.el ends here

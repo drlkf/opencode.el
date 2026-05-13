@@ -46,8 +46,8 @@
 (defvar-local opencode--extra-parts nil
   "An list containing extra parts to send with the next input.")
 
-(defvar opencode--event-subscriptions nil
-  "An alist mapping: SSE event process to it's directory.")
+(defvar opencode--event-subscription nil
+  "SSE event process for the global event stream.")
 
 (defvar opencode--session-control-buffers nil
   "An alist mapping of projectIDs to session control buffers for that project.")

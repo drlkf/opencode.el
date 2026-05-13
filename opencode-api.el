@@ -78,7 +78,7 @@ and saving to CURRENT-BUFFER while running BODY."
                          (save-excursion
                            (goto-char (point-max))
                            (insert "ERROR: " error-msg "\n"))))
-                     (if opencode--event-subscriptions
+                     (if opencode--event-subscription
                          (error error-msg)
                        (error "Not connected to opencode"))))))))
 

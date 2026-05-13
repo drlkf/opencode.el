@@ -433,8 +433,8 @@ Also prompts for pending questions or permissions if any."
   "Fetch available agents from server and filter out hidden agents."
   (opencode-api-agents agents
     (setq opencode-agents
-          (seq-remove (lambda (agent)
-                        (alist-get 'hidden agent))
+          (seq-filter (lambda (agent)
+                        (opencode--json-falsy (alist-get 'hidden agent)))
                       agents))))
 
 (defun opencode-new-session (&optional title)

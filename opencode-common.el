@@ -80,7 +80,6 @@ for title, message, variant (error/warning/info/success), and duration"
 
 (defcustom opencode-file-edited-functions
   '(opencode--fix-parens
-    opencode--indent-file
     opencode--reload-elisp-file)
   "Hook run after opencode edits a file.
 This is an abnormal hook.  Each function receives one argument, FILE,
@@ -89,7 +88,10 @@ the file path edited by a completed write, edit, or apply_patch tool call."
   :group 'opencode)
 
 (defcustom opencode-files-finished-editing-functions
-  '(opencode--flycheck-edited-files)
+  ;; indent needs to go before flycheck, otherwise revert-buffer called by
+  ;; indent-files will interrupt flycheck
+  '(opencode--indent-files
+    opencode--flycheck-edited-files)
   "Run hooks after opencode finishes editing files.
 This is an abnormal hook.  Each function receives one argument, FILES,
 the list of file paths from a message summary diff."
@@ -319,13 +321,14 @@ the optional fourth element is a number to sort by."
        (eq buffer (window-buffer (selected-window)))
        (frame-focus-state (window-frame (selected-window)))))
 
-(defun opencode--indent-file (file)
-  "Indent FILE with Emacs."
-  (with-current-buffer (find-file-noselect file)
-    (revert-buffer t t t)
-    (indent-region (point-min) (point-max))
-    (when (buffer-modified-p)
-      (save-buffer))))
+(defun opencode--indent-files (files)
+  "Indent FILES with Emacs."
+  (dolist (file files)
+    (with-current-buffer (find-file-noselect file)
+      (revert-buffer t t t)
+      (indent-region (point-min) (point-max))
+      (when (buffer-modified-p)
+        (save-buffer)))))
 
 (defun opencode--reload-elisp-file (file)
   "Reload elisp FILE after LLM edits."

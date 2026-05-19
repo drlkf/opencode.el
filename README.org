@@ -25,12 +25,24 @@ of advantages over the official TUI:
      hooks will:
      + fix parentheses with parinfer if =parinfer-rust-mode= is installed after
        edits to emacs lisp and common lisp files
-     + fix indentation using =indent-region=
      + reload file after edits to emacs lisp files
    - calls =opencode-files-finished-editing-functions= with a list of all files
-     edited in the last assistant turn. The default hook will run flycheck and
-     report all errors and warnings in the edited files to the LLM if you have
-     flycheck setup.
+     edited in the last assistant turn. The default hook will fix indentation
+     with =indent-region= and run flycheck and report all errors and warnings in
+     the edited files to the LLM if you have flycheck setup.
+
+     You can set project specific hooks in
+     =opencode-project-files-finished-editing-functions=. We include
+     =opencode-uv-pytest= and =opencode-emacs-ert= which will run all tests from
+     pytest and ERT and report errors to the LLM. They are defined using
+     =opencode-run-command-diagnostic= which you can use to run any shell command
+     and report errors to the LLM. To set up a python project to run pytest
+     after LLM edits add your project directory to
+     =safe-local-variable-directories= and then create a =.dir-locals.el= in the
+     project directory with:
+     #+begin_src elisp
+((nil . ((opencode-project-files-finished-editing-functions . (opencode-uv-pytest))))))
+     #+end_src
    - add any emacs buffer to chat context with =opencode-add-buffer-dwim=
    - add files from dired to context with =opencode-add-file-dwim=
    - add selected region to context with =opencode-add-region=

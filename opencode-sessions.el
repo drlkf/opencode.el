@@ -927,7 +927,7 @@ Returns the buffer."
             (opencode-session-mode)
             (setq opencode-session-id .id
                   opencode-last-session-buffer buffer
-                  default-directory .directory
+                  default-directory (file-name-as-directory .directory)
                   opencode-session-variant variant
                   opencode--tool-calls-displayed (make-hash-table :test 'equal)
                   opencode-session-agents (mapcar (lambda (agent)
@@ -939,6 +939,7 @@ Returns the buffer."
                                                       (copy-tree opencode-agents)))
                   opencode-session-agent (or agent (car opencode-session-agents))
                   mode-line-process '(:eval (opencode--session-status-indicator)))
+            (hack-dir-local-variables-non-file-buffer)
             (add-hook 'fill-nobreak-predicate #'opencode--in-label-p nil t)
             (puthash .id buffer opencode-session-buffers)
             (let ((proc (start-process "dummy" buffer nil)))

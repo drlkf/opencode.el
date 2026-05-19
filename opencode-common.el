@@ -88,8 +88,6 @@ the file path edited by a completed write, edit, or apply_patch tool call."
   :group 'opencode)
 
 (defcustom opencode-files-finished-editing-functions
-  ;; indent needs to go before flycheck, otherwise revert-buffer called by
-  ;; indent-files will interrupt flycheck
   '(opencode--indent-files
     opencode--flycheck-edited-files)
   "Run hooks after opencode finishes editing files.
@@ -100,6 +98,14 @@ return `:opencode-async' and call `opencode-hook-finished' when done.
 While a hook is active, it may call `opencode-report-diagnostic' zero
 or more times to queue diagnostic messages; all queued diagnostics are
 sent to the session together after all hooks finish."
+  :type 'hook
+  :group 'opencode)
+
+(defcustom opencode-project-files-finished-editing-functions
+  nil
+  "Like `opencode-files-finished-editing-functions', but per-project.
+Designed to be set in `.dir-locals.el'"
+  :local t
   :type 'hook
   :group 'opencode)
 

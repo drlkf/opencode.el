@@ -293,18 +293,6 @@ Or nil to disable logging.")
    "Please fix any problems caused by your changes.\n\n"
    (mapconcat #'identity diagnostics "\n\n")))
 
-(defun opencode--matching-files-finished-editing-hooks (directory)
-  "Return finished-editing hooks that should run for DIRECTORY."
-  (let ((normalized-directory (opencode--normalize-directory directory)))
-    (delq nil
-          (mapcar (lambda (hook)
-                    (if (stringp (car-safe hook))
-                        (when (equal (opencode--normalize-directory (car hook))
-                                     normalized-directory)
-                          (cdr hook))
-                      hook))
-                  opencode-files-finished-editing-functions))))
-
 (defun opencode--maybe-start-files-finished-editing-hook ()
   "Start the next queued finished-editing hook run if none is active."
   (unless opencode--files-finished-editing-current
@@ -381,21 +369,6 @@ Or nil to disable logging.")
           (with-current-buffer buffer
             (setq opencode--files-edited-this-turn files)))))))
 
-<<<<<<< HEAD
-=======
-(defun opencode--run-files-finished-editing-hook (files directory)
-  "Run `opencode-files-finished-editing-functions' for FILES in DIRECTORY."
-  (when-let ((hooks (opencode--matching-files-finished-editing-hooks directory)))
-    (setq opencode--files-finished-editing-queue
-          (append opencode--files-finished-editing-queue
-                  (list (list :session-buffer (current-buffer)
-                              :files files
-                              :hooks hooks
-                              :diagnostics nil
-                              :active-hook nil))))
-    (opencode--maybe-start-files-finished-editing-hook)))
-
->>>>>>> 93c8c42 (opencode-report-diagnostic for finished edit hooks)
 (defun opencode--maybe-run-files-finished-editing-hook (session-id)
   "Run `opencode-files-finished-editing-functions' for SESSION-ID's pending files."
   (when-let ((buffer (gethash session-id opencode-session-buffers)))
@@ -404,16 +377,88 @@ Or nil to disable logging.")
         (when opencode--files-edited-this-turn
           (let ((files opencode--files-edited-this-turn))
             (setq opencode--files-edited-this-turn nil)
-            (run-hook-with-args 'opencode-files-finished-editing-functions files)))))))
+            (when-let ((hooks (append opencode-files-finished-editing-functions
+                                      opencode-project-files-finished-editing-functions)))
+              (setq opencode--files-finished-editing-queue
+                    (append opencode--files-finished-editing-queue
+                            (list (list :session-buffer (current-buffer)
+                                        :files files
+                                        :hooks hooks
+                                        :diagnostics nil
+                                        :active-hook nil))))
+              (opencode--maybe-start-files-finished-editing-hook))))))))
 
 (defun opencode--indent-files (files)
   "Indent FILES with Emacs."
   (dolist (file files)
     (with-current-buffer (find-file-noselect file)
-      (revert-buffer t t t)
-      (indent-region (point-min) (point-max))
+      (let ((inhibit-message t))
+        (revert-buffer t t t)
+        (indent-region (point-min) (point-max)))
       (when (buffer-modified-p)
+        (message "opencode indented %s" file)
         (save-buffer)))))
+
+(defun opencode-run-command-diagnostic (command)
+  "Run COMMAND asynchronously and report diagnostics.
+For use within `opencode-files-finished-editing-functions' or
+`opencode-project-files-finished-editing-functions'."
+  (let* ((command-name (car command))
+         (buffer (generate-new-buffer (format "*%s*" command-name)))
+         (command-string (string-join command " ")))
+    (condition-case err
+        (progn
+          (make-process
+           :name command-name
+           :buffer buffer
+           :command command
+           :connection-type 'pipe
+           :noquery t
+           :sentinel
+           (lambda (process _event)
+             (when (memq (process-status process) '(exit signal))
+               (unwind-protect
+                   (unless (zerop (process-exit-status process))
+                     (let ((output (with-current-buffer (process-buffer process)
+                                     (string-trim (buffer-string)))))
+                       (opencode-report-diagnostic
+                        (if (equal output "")
+                            (format "`%s` failed" command-string)
+                          (format "`%s` failed:\n\n%s"
+                                  command-string
+                                  output)))))
+                 (kill-buffer buffer)
+                 (opencode-hook-finished)))))
+          :opencode-async)
+      (error
+       (kill-buffer buffer)
+       (opencode-report-diagnostic
+        (format "Failed to start `%s`: %s"
+                command-string
+                (error-message-string err)))
+       nil))))
+
+(defun opencode--emacs-ert-command ()
+  "Return the batch Emacs command used to test with ERT."
+  (append
+   (list (concat invocation-directory invocation-name) "--batch")
+   (cl-loop for path in (delete-dups (append (list default-directory) load-path nil))
+            when (and (stringp path) (file-directory-p path))
+            append (list "-L" (expand-file-name path)))
+   (cl-loop for file in (directory-files-recursively default-directory
+                                                     "\\(?:-test\\|-tests\\)\\.el\\'")
+            append (list "-l" file))
+   (list "-f" "ert-run-tests-batch-and-exit")))
+
+(defun opencode-uv-pytest (_files)
+  "Run pytest with uv and report diagnostics."
+  (opencode-run-command-diagnostic
+   '("uv" "run" "python3" "-m" "pytest")))
+
+(defun opencode-emacs-ert (_files)
+  "Run ERT and report diagnostics."
+  (opencode-run-command-diagnostic
+   (opencode--emacs-ert-command)))
 
 (defun opencode--selection-change-hook (&optional _frame)
   "Hook to remove session from the alerted sessions list when it's visited.

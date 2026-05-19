@@ -262,6 +262,99 @@ Or nil to disable logging.")
                     ("apply_patch" (opencode--apply-patch-edited-files .patchText))))
       (run-hook-with-args 'opencode-file-edited-functions file))))
 
+(defvar opencode--files-finished-editing-current nil
+  "Current `opencode-files-finished-editing-functions' run context.")
+
+(defvar opencode--files-finished-editing-queue nil
+  "Queued `opencode-files-finished-editing-functions' run contexts.")
+
+(defun opencode-report-diagnostic (message)
+  "Queue diagnostic MESSAGE for the active finished-editing hook."
+  (unless opencode--files-finished-editing-current
+    (error "`opencode-report-diagnostic' called outside a finished-editing hook"))
+  (when (and message (not (string= message "")))
+    (push message
+          (plist-get opencode--files-finished-editing-current :diagnostics))))
+
+(defun opencode-hook-finished ()
+  "Mark the active finished-editing hook as complete."
+  (let ((context opencode--files-finished-editing-current))
+    (unless context
+      (error "`opencode-hook-finished' called outside a finished-editing hook"))
+    (unless (plist-get context :active-hook)
+      (error "`opencode-hook-finished' called without an active hook"))
+    (plist-put context :active-hook nil)
+    (opencode--run-next-files-finished-editing-hook)))
+
+(defun opencode--files-finished-editing-diagnostic-message (diagnostics)
+  "Return a synthetic input message for DIAGNOSTICS."
+  (concat
+   "Diagnostics were reported after editing files. "
+   "Please fix any problems caused by your changes.\n\n"
+   (mapconcat #'identity diagnostics "\n\n")))
+
+(defun opencode--matching-files-finished-editing-hooks (directory)
+  "Return finished-editing hooks that should run for DIRECTORY."
+  (let ((normalized-directory (opencode--normalize-directory directory)))
+    (delq nil
+          (mapcar (lambda (hook)
+                    (if (stringp (car-safe hook))
+                        (when (equal (opencode--normalize-directory (car hook))
+                                     normalized-directory)
+                          (cdr hook))
+                      hook))
+                  opencode-files-finished-editing-functions))))
+
+(defun opencode--maybe-start-files-finished-editing-hook ()
+  "Start the next queued finished-editing hook run if none is active."
+  (unless opencode--files-finished-editing-current
+    (when opencode--files-finished-editing-queue
+      (let ((context (pop opencode--files-finished-editing-queue)))
+        (setq opencode--files-finished-editing-current context)
+        (opencode--run-next-files-finished-editing-hook)))))
+
+(defun opencode--finish-files-finished-editing-hook-run (context)
+  "Finish finished-editing hook run CONTEXT and send queued diagnostics."
+  (let ((diagnostics (nreverse (plist-get context :diagnostics)))
+        (buffer (plist-get context :session-buffer)))
+    (setq opencode--files-finished-editing-current nil)
+    (when (and diagnostics (buffer-live-p buffer))
+      (with-current-buffer buffer
+        (opencode-session--send-synthetic-input
+         (opencode--files-finished-editing-diagnostic-message diagnostics)))))
+  (opencode--maybe-start-files-finished-editing-hook))
+
+(defun opencode--run-next-files-finished-editing-hook ()
+  "Run the next hook in the active finished-editing context."
+  (let ((context opencode--files-finished-editing-current))
+    (unless context
+      (error "No active finished-editing hook context"))
+    (when-let ((buffer (plist-get context :session-buffer)))
+      (when (buffer-live-p buffer)
+        (with-current-buffer buffer
+          (if-let ((hook (car (plist-get context :hooks))))
+              (let (result errored)
+                (plist-put context :hooks (cdr (plist-get context :hooks)))
+                (plist-put context :active-hook hook)
+                (condition-case err
+                    (setq result (funcall hook (plist-get context :files)))
+                  (error
+                   (setq errored t)
+                   (opencode--log-event
+                    "WARNING FINISHED EDITING HOOK"
+                    (format "%S failed: %s" hook (error-message-string err)))
+                   (when (and (eq opencode--files-finished-editing-current context)
+                              (eq (plist-get context :active-hook) hook))
+                     (plist-put context :active-hook nil)
+                     (opencode--run-next-files-finished-editing-hook))))
+                (when (and (not errored)
+                           (not (eq result :opencode-async))
+                           (eq opencode--files-finished-editing-current context)
+                           (eq (plist-get context :active-hook) hook))
+                  (plist-put context :active-hook nil)
+                  (opencode--run-next-files-finished-editing-hook)))
+            (opencode--finish-files-finished-editing-hook-run context)))))))
+
 (defun opencode--maybe-run-file-edited-hook (part)
   "Run `opencode-file-edited-functions' if PART completed a file edit."
   (let-alist part
@@ -288,6 +381,21 @@ Or nil to disable logging.")
           (with-current-buffer buffer
             (setq opencode--files-edited-this-turn files)))))))
 
+<<<<<<< HEAD
+=======
+(defun opencode--run-files-finished-editing-hook (files directory)
+  "Run `opencode-files-finished-editing-functions' for FILES in DIRECTORY."
+  (when-let ((hooks (opencode--matching-files-finished-editing-hooks directory)))
+    (setq opencode--files-finished-editing-queue
+          (append opencode--files-finished-editing-queue
+                  (list (list :session-buffer (current-buffer)
+                              :files files
+                              :hooks hooks
+                              :diagnostics nil
+                              :active-hook nil))))
+    (opencode--maybe-start-files-finished-editing-hook)))
+
+>>>>>>> 93c8c42 (opencode-report-diagnostic for finished edit hooks)
 (defun opencode--maybe-run-files-finished-editing-hook (session-id)
   "Run `opencode-files-finished-editing-functions' for SESSION-ID's pending files."
   (when-let ((buffer (gethash session-id opencode-session-buffers)))
@@ -297,6 +405,15 @@ Or nil to disable logging.")
           (let ((files opencode--files-edited-this-turn))
             (setq opencode--files-edited-this-turn nil)
             (run-hook-with-args 'opencode-files-finished-editing-functions files)))))))
+
+(defun opencode--indent-files (files)
+  "Indent FILES with Emacs."
+  (dolist (file files)
+    (with-current-buffer (find-file-noselect file)
+      (revert-buffer t t t)
+      (indent-region (point-min) (point-max))
+      (when (buffer-modified-p)
+        (save-buffer)))))
 
 (defun opencode--selection-change-hook (&optional _frame)
   "Hook to remove session from the alerted sessions list when it's visited.

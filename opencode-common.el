@@ -93,8 +93,13 @@ the file path edited by a completed write, edit, or apply_patch tool call."
   '(opencode--indent-files
     opencode--flycheck-edited-files)
   "Run hooks after opencode finishes editing files.
-This is an abnormal hook.  Each function receives one argument, FILES,
-the list of file paths from a message summary diff."
+This is an abnormal hook.  Each entry receives one argument, FILES,
+the list of file paths from a message summary diff.  Hooks that finish
+synchronously can just return.  Hooks that finish asynchronously must
+return `:opencode-async' and call `opencode-hook-finished' when done.
+While a hook is active, it may call `opencode-report-diagnostic' zero
+or more times to queue diagnostic messages; all queued diagnostics are
+sent to the session together after all hooks finish."
   :type 'hook
   :group 'opencode)
 
@@ -320,15 +325,6 @@ the optional fourth element is a number to sort by."
   (and buffer
        (eq buffer (window-buffer (selected-window)))
        (frame-focus-state (window-frame (selected-window)))))
-
-(defun opencode--indent-files (files)
-  "Indent FILES with Emacs."
-  (dolist (file files)
-    (with-current-buffer (find-file-noselect file)
-      (revert-buffer t t t)
-      (indent-region (point-min) (point-max))
-      (when (buffer-modified-p)
-        (save-buffer)))))
 
 (defun opencode--reload-elisp-file (file)
   "Reload elisp FILE after LLM edits."

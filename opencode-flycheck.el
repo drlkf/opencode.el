@@ -21,7 +21,8 @@
 (declare-function flycheck-error-format "flycheck" (err &optional with-file-name))
 (declare-function flycheck-error-level "flycheck" (err))
 (declare-function flycheck-error-line "flycheck" (err))
-(declare-function opencode-session--send-synthetic-input "opencode-sessions" (string))
+(declare-function opencode-hook-finished "opencode" ())
+(declare-function opencode-report-diagnostic "opencode" (message))
 
 (defvar flycheck-current-errors)
 (defvar flycheck-mode)
@@ -35,99 +36,80 @@
             (memq (flycheck-error-level err) '(error warning)))
           errors)))
     (when relevant-errors
-      (cons file
-            (mapcar (lambda (err)
-                      (concat "- "
-                              (file-relative-name
-                               (or (flycheck-error-filename err) file)
-                               base-directory)
-                              ":"
-                              (number-to-string (or (flycheck-error-line err) 1))
-                              (when-let ((column (flycheck-error-column err)))
-                                (format ":%d" column))
-                              ": "
-                              (symbol-name (flycheck-error-level err))
-                              ": "
-                              (flycheck-error-format err nil)))
-                    relevant-errors)))))
+      (mapconcat (lambda (err)
+                   (concat "- "
+                           (file-relative-name
+                            (or (flycheck-error-filename err) file)
+                            base-directory)
+                           ":"
+                           (number-to-string (or (flycheck-error-line err) 1))
+                           (when-let ((column (flycheck-error-column err)))
+                             (format ":%d" column))
+                           ": "
+                           (symbol-name (flycheck-error-level err))
+                           ": "
+                           (flycheck-error-format err nil)))
+                 relevant-errors
+                 "\n"))))
 
 (defun opencode--flycheck-report-status (file base-directory status)
   "Return a formatted Flycheck STATUS report for FILE.
 BASE-DIRECTORY is used to shorten FILE in the report."
   (when (memq status '(errored interrupted suspicious))
-    (cons file
-          (list (format "- %s: warning: Flycheck ended with status `%s'"
-                        (file-relative-name file base-directory)
-                        status)))))
-
-(defun opencode--flycheck-report-message (reports)
-  "Return a prompt string for Flycheck REPORTS."
-  (concat
-   "Flycheck reported diagnostics in files you edited. "
-   "Please fix any problems caused by your changes.\n\n"
-   (mapconcat (lambda (report)
-                (string-join (cdr report) "\n"))
-              reports
-              "\n")))
+    (format "- %s: warning: Flycheck ended with status `%s'"
+            (file-relative-name file base-directory)
+            status)))
 
 (defun opencode--flycheck-edited-files (files)
-  "Run Flycheck on FILES and report diagnostics back to the current session."
+  "Run Flycheck on FILES and report diagnostics for the active hook."
   (when (and files (require 'flycheck nil t))
-    (let ((session-buffer (current-buffer))
-          (base-directory default-directory)
-          (remaining 0)
-          reports)
+    (let ((base-directory default-directory)
+          (remaining (length files)))
       (cl-labels ((finish (report)
                     (when report
-                      (push report reports))
+                      (opencode-report-diagnostic report))
                     (cl-decf remaining)
-                    (when (and (zerop remaining)
-                               reports
-                               (buffer-live-p session-buffer))
-                      (with-current-buffer session-buffer
-                        (opencode-session--send-synthetic-input
-                         (opencode--flycheck-report-message
-                          (nreverse reports)))))))
+                    (when (zerop remaining)
+                      (opencode-hook-finished))))
         (dolist (file files)
-          (when (file-regular-p file)
-            (cl-incf remaining)
-            (with-current-buffer (find-file-noselect file)
-              (revert-buffer t t t)
-              (let* ((flycheck-was-enabled flycheck-mode)
-                     (completed nil)
-                     after-hook
-                     status-hook)
-                (setq after-hook
-                      (lambda ()
-                        (unless completed
-                          (setq completed t)
-                          (remove-hook 'flycheck-after-syntax-check-hook after-hook t)
-                          (remove-hook 'flycheck-status-changed-functions status-hook t)
-                          (unless flycheck-was-enabled
-                            (flycheck-mode -1))
-                          (finish
-                           (opencode--flycheck-report-diagnostics
-                            file base-directory flycheck-current-errors)))))
-                (setq status-hook
-                      (lambda (status)
-                        (when (and (not completed)
-                                   (memq status '(no-checker errored interrupted suspicious)))
-                          (setq completed t)
-                          (remove-hook 'flycheck-after-syntax-check-hook after-hook t)
-                          (remove-hook 'flycheck-status-changed-functions status-hook t)
-                          (unless flycheck-was-enabled
-                            (flycheck-mode -1))
-                          (finish
-                           (unless (eq status 'no-checker)
-                             (opencode--flycheck-report-status
-                              file base-directory status))))))
-                (unless flycheck-mode
-                  (flycheck-mode 1))
-                (when (flycheck-running-p)
-                  (flycheck-stop))
-                (add-hook 'flycheck-after-syntax-check-hook after-hook nil t)
-                (add-hook 'flycheck-status-changed-functions status-hook nil t)
-                (flycheck-buffer)))))))))
+          (with-current-buffer (find-file-noselect file)
+            (revert-buffer t t t)
+            (let* ((flycheck-was-enabled flycheck-mode)
+                   (completed nil)
+                   after-hook
+                   status-hook)
+              (setq after-hook
+                    (lambda ()
+                      (unless completed
+                        (setq completed t)
+                        (remove-hook 'flycheck-after-syntax-check-hook after-hook t)
+                        (remove-hook 'flycheck-status-changed-functions status-hook t)
+                        (unless flycheck-was-enabled
+                          (flycheck-mode -1))
+                        (finish
+                         (opencode--flycheck-report-diagnostics
+                          file base-directory flycheck-current-errors)))))
+              (setq status-hook
+                    (lambda (status)
+                      (when (and (not completed)
+                                 (memq status '(no-checker errored interrupted suspicious)))
+                        (setq completed t)
+                        (remove-hook 'flycheck-after-syntax-check-hook after-hook t)
+                        (remove-hook 'flycheck-status-changed-functions status-hook t)
+                        (unless flycheck-was-enabled
+                          (flycheck-mode -1))
+                        (finish
+                         (unless (eq status 'no-checker)
+                           (opencode--flycheck-report-status
+                            file base-directory status))))))
+              (unless flycheck-mode
+                (flycheck-mode 1))
+              (when (flycheck-running-p)
+                (flycheck-stop))
+              (add-hook 'flycheck-after-syntax-check-hook after-hook nil t)
+              (add-hook 'flycheck-status-changed-functions status-hook nil t)
+              (flycheck-buffer)))))
+      :opencode-async)))
 
 (provide 'opencode-flycheck)
 ;;; opencode-flycheck.el ends here

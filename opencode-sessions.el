@@ -96,10 +96,7 @@
 
 (defvar-local opencode-session-agents nil
   "List of agents for the current session.
-Buffer local so we can configure models per agent per session.")
-
-(defvar-local opencode-session-variant nil
-  "Currently selected model variant for session.")
+Buffer local so we can configure models and variants per agent per session.")
 
 (defvar-local opencode-session-pending-questions nil
   "Pending questions for this session buffer, awaiting user response.
@@ -130,6 +127,14 @@ Requests are processed FIFO.")
 (defun opencode-cycle-session-agent ()
   "Switch to the next agent in `opencode-session-agents'."
   (interactive)
+  (let* ((agent-name (alist-get 'name opencode-session-agent))
+         (agent-cell (and agent-name
+                          (cl-loop for cell on opencode-session-agents
+                                   when (string= agent-name
+                                                 (alist-get 'name (car cell)))
+                                   return cell))))
+    (when agent-cell
+      (setcar agent-cell opencode-session-agent)))
   (let* ((pos (cl-position-if (lambda (agent)
                                 (string= (alist-get 'name agent)
                                          (alist-get 'name opencode-session-agent)))
@@ -231,9 +236,11 @@ Each element is (display-name . (provider-id provider-name model-id))."
                      (opencode--collect-all-models))))
     (setf (alist-get 'model opencode-session-agent) model
           opencode-last-model model)
-    (unless (alist-get opencode-session-variant
-                       (alist-get 'variants (opencode--current-model)))
-      (setf opencode-session-variant nil))))
+    (when-let ((variant (alist-get 'variant opencode-session-agent)))
+      (unless (alist-get variant
+                         (alist-get 'variants (opencode--current-model)))
+        (setq opencode-session-agent
+              (assq-delete-all 'variant opencode-session-agent))))))
 
 (defun opencode--current-model ()
   "Return the active model for this session."
@@ -247,18 +254,19 @@ Each element is (display-name . (provider-id provider-name model-id))."
 (defun opencode-select-variant ()
   "Select a variant for the current model."
   (interactive)
+  (unless opencode-session-agent
+    (user-error "not in a session"))
   (let ((variants (alist-get 'variants (opencode--current-model))))
-    (setq opencode-session-variant
-          (if variants
+    (if variants
+        (setf (alist-get 'variant opencode-session-agent)
               (opencode--annotated-completion
                "Variant: "
                (cl-loop for (variant . options) in
                         variants
                         collect (list (symbol-name variant)
                                       variant
-                                      (format "%s" options))))
-            (message "No variants")
-            nil))))
+                                      (format "%s" options)))))
+      (message "No variants"))))
 
 (defun opencode-select-child-session ()
   "Open a child (subagent) session of the current session."
@@ -342,8 +350,8 @@ Each element is (display-name . (provider-id provider-name model-id))."
         (format "[🤖 %s - %s] %.0f%%%% %s  "
                 agent
                 (concat (alist-get 'name model)
-                        (when opencode-session-variant
-                          (propertize (format " %s" opencode-session-variant)
+                        (when .variant
+                          (propertize (format " %s" .variant)
                                       'face '(bold opencode-request-margin-highlight))))
                 context-used status)))))
 
@@ -621,8 +629,8 @@ Otherwise prompt for file in current project."
         (opencode-api-send-message (opencode-session-id)
             `((agent . ,.name)
               ,(assoc 'model opencode-session-agent)
-              ,@(when opencode-session-variant
-                  `((variant . ,opencode-session-variant)))
+              ,@(when .variant
+                  `((variant . ,.variant)))
               (parts . ,(nreverse
                          (cons `((type . text) (text . ,string))
                                extra-parts))))
@@ -844,8 +852,9 @@ TYPE is text|reasoning|tool|step-finish"
                              (string= (alist-get 'name agent)
                                       .info.agent))
                            opencode-session-agents)))
-      (setf opencode-session-agent agent)
-      (setf (alist-get 'model agent) .info.model))))
+      (setq opencode-session-agent agent)
+      (setf (alist-get 'model opencode-session-agent) .info.model)
+      (setf (alist-get 'variant opencode-session-agent) .info.model.variant))))
 
 (defun opencode--insert-block-with-margin (text face)
   "Insert TEXT with FACE margin highlight."
@@ -923,14 +932,12 @@ Returns the buffer."
             (switch-to-buffer old-buffer))
         (let ((buffer (generate-new-buffer (format "*OpenCode: %s*" .title)))
               (agent (copy-tree opencode-session-agent))
-              (agents (copy-tree opencode-session-agents))
-              (variant opencode-session-variant))
+              (agents (copy-tree opencode-session-agents)))
           (with-current-buffer buffer
             (opencode-session-mode)
             (setq opencode-session-id .id
                   opencode-last-session-buffer buffer
                   default-directory (file-name-as-directory .directory)
-                  opencode-session-variant variant
                   opencode--tool-calls-displayed (make-hash-table :test 'equal)
                   opencode-session-agents (mapcar (lambda (agent)
                                                     (unless (alist-get 'model agent)

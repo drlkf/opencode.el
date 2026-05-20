@@ -500,6 +500,8 @@ Assign the overlay EXTRA-PROP with EXTRA-VALUE."
   `(if opencode-last-session-buffer
        (if (buffer-live-p opencode-last-session-buffer)
            (with-current-buffer opencode-last-session-buffer
+             (unless (comint-after-pmark-p)
+               (goto-char (point-max)))
              ,@body)
          (user-error "Last selected OpenCode session buffer is no longer active"))
      (user-error "Open an OpenCode session first")))

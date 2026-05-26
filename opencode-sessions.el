@@ -920,10 +920,11 @@ TYPE is text|reasoning|tool|step-finish"
   "Open SESSION using the current window."
   (opencode-open-session session :pop-to-buffer nil))
 
-(cl-defun opencode-open-session (session &key (pop-to-buffer t))
+(cl-defun opencode-open-session (session &key (pop-to-buffer t) callback)
   "Open comint based shell for SESSION.
 POP-TO-BUFFER controls whether to pop to or switch to the session buffer.
-Returns the buffer."
+Returns the buffer.
+If CALLBACK is given, it will be called with the session after it is initialized."
   (let-alist session
     (let ((old-buffer (gethash .id opencode-session-buffers)))
       (if (buffer-live-p old-buffer)
@@ -980,7 +981,9 @@ Returns the buffer."
                        (setq opencode-session-tokens
                              (+ .tokens.input .tokens.output .tokens.reasoning
                                 .tokens.cache.read .tokens.cache.write))))))
-                (opencode--show-prompt)))
+                (opencode--show-prompt)
+                (when callback
+                  (funcall callback session))))
             (if pop-to-buffer
                 (pop-to-buffer buffer)
               (switch-to-buffer buffer))))))))

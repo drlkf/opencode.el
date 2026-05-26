@@ -600,12 +600,13 @@ Also prompts for pending questions or permissions if any."
                         (opencode--json-falsy (alist-get 'hidden agent)))
                       agents))))
 
-(defun opencode-new-session (&optional title)
+(cl-defun opencode-new-session (&key title callback)
   "Create a new session. With a prefix argument it will ask for TITLE.
-Without it will use a default title and then automatically generate one."
+Without it will use a default title and then automatically generate one.
+If CALLBACK is given, it will be called with the session after it is created."
   (interactive
-   (list (when current-prefix-arg
-           (read-string "Title: "))))
+   (when current-prefix-arg
+     (list :title (read-string "Title: "))))
   (opencode-autoconnect
    (lambda ()
      (opencode--download-slash-commands default-directory)
@@ -613,7 +614,7 @@ Without it will use a default title and then automatically generate one."
                                       `((title . ,title))
                                     (make-hash-table))
          session
-       (opencode-open-session session)))))
+       (opencode-open-session session :callback callback)))))
 
 (defun opencode-toggle-mcp ()
   "Completing read to select an MCP to toggle."

@@ -358,5 +358,17 @@ the optional fourth element is a number to sort by."
            (parinfer-rust--execute))
          (save-buffer))))))
 
+(defun opencode--indent-sensitive-buffer-p ()
+  "Return non-nil if the current buffer is indentation-sensitive."
+  (derived-mode-p '(python-base-mode
+                    haskell-mode
+                    haskell-ts-mode
+                    fsharp-mode
+                    fsharp-ts-mode
+                    yaml-mode
+                    yaml-ts-mode
+                    nim-mode
+                    nim-ts-mode)))
+
 (provide 'opencode-common)
 ;;; opencode-common.el ends here

@@ -72,6 +72,12 @@ When nil, `opencode' will only connect to an already running server."
   :type 'boolean
   :group 'opencode)
 
+(defcustom opencode-session-deleted-functions nil
+  "Hook run when an opencode session is deleted.
+This is an abnormal hook. Each function receives one argument, SESSION-ID."
+  :type 'hook
+  :group 'opencode)
+
 (defvar opencode--process nil
   "Opencode server process when started by Emacs.")
 
@@ -524,6 +530,8 @@ Also prompts for pending questions or permissions if any."
                                                                            .status.attempt))
                                                        (variant . "warning")))))))
           ((session.created session.updated session.deleted)
+           (when (eq 'session.deleted msg-type)
+             (run-hook-with-args 'opencode-session-deleted-functions .info.id))
            (dolist (buffer (map-elt opencode--session-control-buffers .info.projectID))
              (when (buffer-live-p buffer)
                (with-current-buffer buffer

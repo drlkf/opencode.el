@@ -82,8 +82,11 @@ for title, message, variant (error/warning/info/success), and duration"
   '(opencode--fix-parens
     opencode--reload-elisp-file)
   "Hook run after opencode edits a file.
-This is an abnormal hook.  Each function receives one argument, FILE,
-the file path edited by a completed write, edit, or apply_patch tool call."
+This is an abnormal hook.  Each function receives two arguments, FILE and
+RANGES, after a completed write, edit, or apply_patch tool call.  FILE is the
+edited file path.  RANGES is a list of (START-LINE . END-LINE) cons cells in
+the post-edit file, or nil when the whole file was written.  For deletion-only
+edits, END-LINE is nil."
   :type 'hook
   :group 'opencode)
 
@@ -332,7 +335,7 @@ the optional fourth element is a number to sort by."
        (eq buffer (window-buffer (selected-window)))
        (frame-focus-state (window-frame (selected-window)))))
 
-(defun opencode--reload-elisp-file (file)
+(defun opencode--reload-elisp-file (file &optional _ranges)
   "Reload elisp FILE after LLM edits."
   (when (string-suffix-p ".el" file)
     (condition-case err
@@ -340,7 +343,7 @@ the optional fourth element is a number to sort by."
       (error
        (message "Error reloading %s after LLM edit: %s" file err)))))
 
-(defun opencode--fix-parens (file)
+(defun opencode--fix-parens (file &optional _ranges)
   "Use parinfer to fix parens in FILE after LLM edits."
   (when (and (or (string-suffix-p ".el" file)
                  (string-suffix-p ".lisp" file))

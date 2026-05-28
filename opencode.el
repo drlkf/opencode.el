@@ -19,6 +19,7 @@
 (require 'magit)
 (require 'opencode-api)
 (require 'opencode-common)
+(require 'opencode-diff-parser)
 (require 'opencode-permission)
 (require 'opencode-question)
 (require 'opencode-sessions)
@@ -260,13 +261,20 @@ Or nil to disable logging.")
                         event))
         (opencode--truncate-at-max-lines opencode-event-log-max-lines)))))
 
-(defun opencode--run-file-edited-hook (tool input)
-  "Run `opencode-file-edited-functions' for completed TOOL with INPUT."
-  (let-alist input
-    (dolist (file (pcase tool
-                    ((or "write" "edit") (when .filePath (list .filePath)))
-                    ("apply_patch" (opencode--apply-patch-edited-files .patchText))))
-      (run-hook-with-args 'opencode-file-edited-functions file))))
+(defun opencode--run-file-edited-hook (tool state)
+  "Run `opencode-file-edited-functions' for completed TOOL with STATE."
+  (let-alist state
+    (dolist (file-ranges (pcase tool
+                           ("write"
+                            (when .input.filePath
+                              (list (cons .input.filePath nil))))
+                           ((or "edit" "apply_patch")
+                            (unless .metadata.diff
+                              (error "Missing diff metadata for %s tool" tool))
+                            (opencode-diff->source-line-ranges .metadata.diff))))
+      (run-hook-with-args 'opencode-file-edited-functions
+                          (car file-ranges)
+                          (cdr file-ranges)))))
 
 (defvar opencode--files-finished-editing-current nil
   "Current `opencode-files-finished-editing-functions' run context.")
@@ -354,7 +362,7 @@ Or nil to disable logging.")
   (let-alist part
     (when (and (equal .type "tool")
                (equal .state.status "completed"))
-      (opencode--run-file-edited-hook .tool .state.input))))
+      (opencode--run-file-edited-hook .tool .state))))
 
 (defun opencode--message-summary-diff-files (info)
   "Return file names from INFO summary diffs."

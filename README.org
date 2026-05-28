@@ -51,6 +51,7 @@ of advantages over the official TUI:
    - =`file`= and file:line references in LLM output are turned into clickable buttons
    - use =dabbrev-expand= in the chat window to complete long variable or function
      names from your code buffers
+   - configure how your custom MCP and tools are displayed with =opencode-tool-formatters=
    - I use with [[https://codeberg.org/sczi/eval-elisp-mcp][eval-elisp-mcp]] when developing in elisp.
 
 * Demo
@@ -244,3 +245,10 @@ from the shared folder.
 - the =opencode-faces= group configures faces used when displaying sessions
 - =opencode-toast-function= is used to show toast notifications
 - =opencode-file-edited-functions= is a hook run after edit tool calls
+- ==opencode-files-finished-editing-functions== is a hook run after the assistant
+  response finishes, with all files that it edited
+- =opencode-project-files-finished-editing-functions= is a buffer local hook run
+  after the assistant response finishes, that you can use for example to run
+  your test suite and report errors back the to the LLM
+- =opencode-session-deleted-functions= is a hook run when a session is deleted
+- =opencode-tool-formatters= can be used to control how tools are displayed

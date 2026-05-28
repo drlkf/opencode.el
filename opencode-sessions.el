@@ -900,6 +900,7 @@ TYPE is text|reasoning|tool|step-finish"
     (opencode--insert-block-with-margin
      (opencode--format-tool-call tool input)
      'opencode-tool-margin-highlight)
+    (opencode--maybe-insert-block-spacing)
     ;; For diff-like tools, apply diff hunk refinement after insertion.
     (when (member tool '("edit" "apply_patch"))
       (opencode--refine-diff-hunks start))))

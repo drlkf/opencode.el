@@ -53,6 +53,8 @@ of advantages over the official TUI:
      names from your code buffers
    - configure how your custom MCP and tools are displayed with =opencode-tool-formatters=
    - I use with [[https://codeberg.org/sczi/eval-elisp-mcp][eval-elisp-mcp]] when developing in elisp.
+   - For python development integrated with opencode.el, with features like AI
+     autodebugging exceptions, check out [[https://codeberg.org/sczi/swanky-python/][Swanky Python]]
 
 * Demo
 A brief demo showing starting opencode, viewing a past session, sharing it,

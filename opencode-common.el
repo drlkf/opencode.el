@@ -343,6 +343,8 @@ the optional fourth element is a number to sort by."
       (error
        (message "Error reloading %s after LLM edit: %s" file err)))))
 
+(defvar flycheck-checkers)
+
 (defun opencode--fix-parens (file &optional _ranges)
   "Use parinfer to fix parens in FILE after LLM edits."
   (when (and (or (string-suffix-p ".el" file)
@@ -356,9 +358,12 @@ the optional fourth element is a number to sort by."
       (condition-case nil
           (check-parens)
         (error
-         (parinfer-rust--set-default-state)
-         (let ((parinfer-rust--mode "indent"))
-           (parinfer-rust--execute))
+         (let ((flycheck-checkers (delq 'parinfer-rust
+                                        (and (boundp 'flycheck-checkers)
+                                             flycheck-checkers))))
+           (parinfer-rust--set-default-state)
+           (let ((parinfer-rust--mode "indent"))
+             (parinfer-rust--execute)))
          (save-buffer))))))
 
 (defun opencode--indent-sensitive-buffer-p ()

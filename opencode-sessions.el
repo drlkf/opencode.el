@@ -57,6 +57,7 @@
     "C-c n" 'opencode-new-session
     "C-c l" 'opencode-select-session
     "C-c c" 'opencode-select-child-session
+    "C-c C" 'opencode-compact-session
     "C-c p" 'opencode-open-parent
     "C-c f" 'opencode-add-file
     "C-c b" 'opencode-add-buffer-dwim
@@ -1088,6 +1089,17 @@ bound to the exchange ids at point."
   (setq opencode-session-control-verbose
         (not opencode-session-control-verbose))
   (opencode-sessions-redisplay))
+
+(defun opencode-compact-session ()
+  "Compact the current session."
+  (interactive)
+  (if opencode-session-id
+      (opencode-api-summarize (opencode-session-id)
+          (alist-get 'model opencode-session-agent)
+          result
+        (unless result
+          (error "Unable to compact session")))
+    (user-error "Not in an OpenCode session")))
 
 (defun opencode-sessions-redisplay ()
   "Refresh the session display table for DIRECTORY."

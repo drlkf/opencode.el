@@ -132,8 +132,7 @@ set `opencode-server-password' to connect to it"))))
      (when (string-prefix-p "opencode server listening on" output)
        ;; Remove filter to avoid repeated callbacks
        (set-process-filter process nil)
-       (opencode-connect opencode-host opencode-port)
-       (funcall on-connect))))
+       (opencode-connect opencode-host opencode-port on-connect))))
 
   (set-process-sentinel
    opencode--process
@@ -156,8 +155,7 @@ Run ON-CONNECT after connected."
     (funcall on-connect))
    ;; Server already running externally
    ((opencode--server-running-p)
-    (opencode-connect opencode-host opencode-port)
-    (funcall on-connect))
+    (opencode-connect opencode-host opencode-port on-connect))
    ;; Need to start a new server
    (opencode-auto-start-server
     (opencode--start-server on-connect))
@@ -179,8 +177,9 @@ if `opencode-auto-start-server' is non-nil."
                         default-directory))))
     (opencode-autoconnect (lambda () (opencode-open-project project-dir)))))
 
-(defun opencode-connect (host port)
-  "Connect to opencode server, prompting for HOST and PORT."
+(defun opencode-connect (host port on-connect)
+  "Connect to opencode server, prompting for HOST and PORT.
+Call ON-CONNECT once connected."
   (interactive
    (list (read-string "Host: " opencode-host)
          (read-number "Port: " opencode-port)))
@@ -189,9 +188,9 @@ if `opencode-auto-start-server' is non-nil."
   (setq opencode-api-url (format "http://%s:%d" host port))
   (setq opencode--slash-commands-by-directory nil)
   (opencode--subscribe-global-events)
-  (opencode--fetch-agents)
   (opencode-api-configured-providers result
-    (setq opencode-providers (alist-get 'providers result)))
+    (setq opencode-providers (alist-get 'providers result))
+    (opencode--fetch-agents on-connect))
   (message "Connected to %s" opencode-api-url))
 
 (defun opencode-open-project (directory)
@@ -608,13 +607,15 @@ Also prompts for pending questions or permissions if any."
   (setq opencode--event-subscription nil
         opencode--slash-commands-by-directory nil))
 
-(defun opencode--fetch-agents ()
-  "Fetch available agents from server and filter out hidden agents."
+(defun opencode--fetch-agents (callback)
+  "Fetch available agents from server and filter out hidden agents.
+Run CALLBACK once fetched."
   (opencode-api-agents agents
     (setq opencode-agents
           (seq-filter (lambda (agent)
                         (opencode--json-falsy (alist-get 'hidden agent)))
-                      agents))))
+                      agents))
+    (funcall callback)))
 
 (cl-defun opencode-new-session (&key title callback)
   "Create a new session. With a prefix argument it will ask for TITLE.

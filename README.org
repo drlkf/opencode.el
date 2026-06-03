@@ -165,7 +165,7 @@ These colors can be configured through the =opencode-*-margin-highlight= faces.
 |     =C-c C=      | compact session                                                                                                            |
 |     =C-c t=      | scroll to the top of the final part of the last assistant response                                                         |
 |     =C-c p=      | open parent session - when in a subagent session, open the session that spawned it                                         |
-|     =C-c f=      | select a file to add to context                                                                                            |
+|     =C-c f=      | select a file to add to context, if called with a prefix argument then select a directory                                  |
 |     =C-c b=      | select a buffer to add to context                                                                                          |
 | =M-x yank-media= | add an image from clipboard to context                                                                                     |
 |     =C-c s=      | share session - copy a URL to the clipboard with a read-only view of the session                                           |

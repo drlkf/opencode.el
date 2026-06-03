@@ -519,18 +519,28 @@ Assign the overlay EXTRA-PROP with EXTRA-VALUE."
          (user-error "Last selected OpenCode session buffer is no longer active"))
      (user-error "Open an OpenCode session first")))
 
-(defun opencode-add-file (&optional file)
-  "Add a FILE to context, or prompt for file in current project."
-  (interactive)
+(defun opencode-add-file (&optional file prompt-directories)
+  "Add a FILE to context, or prompt for file in current project.
+With a prefix argument, show project directories instead of files."
+  (interactive (list nil current-prefix-arg))
   (with-last-opencode-session
    (let* ((project (project-current t))
-          (file (or file
-                    (project--read-file-name project
-                                             "Add to context"
-                                             (project-files project)
-                                             nil
-                                             'file-name-history))))
-     (opencode--add-file-to-context file))))
+          (root (project-root project))
+          (all-files (project-files project)))
+     (opencode--add-file-to-context
+      (or file
+          (project--read-file-name
+           project
+           "Add to context"
+           (if prompt-directories
+               (delete root
+                       (delete-dups
+                        (cons
+                         (concat root "./")
+                         (mapcar #'file-name-directory all-files))))
+             all-files)
+           nil
+           'file-name-history))))))
 
 (defun opencode-add-file-dwim ()
   "If in Dired, add all marked files, or file at point if none marked.

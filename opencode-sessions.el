@@ -58,6 +58,7 @@
     "C-c l" 'opencode-select-session
     "C-c c" 'opencode-select-child-session
     "C-c C" 'opencode-compact-session
+    "C-c t" 'opencode-scroll-to-last-response-block
     "C-c p" 'opencode-open-parent
     "C-c f" 'opencode-add-file
     "C-c b" 'opencode-add-buffer-dwim
@@ -120,6 +121,9 @@ Requests are processed FIFO.")
 
 (defvar-local opencode--tool-calls-displayed nil
   "A hash table containing all callID that have already been displayed.")
+
+(defvar-local opencode-last-response-start nil
+  "Position of the start of the final block of the assistant response.")
 
 (defvar opencode-assistant-messages
   nil
@@ -765,6 +769,8 @@ TYPE is text|reasoning|tool|step-finish"
           (cl-flet ((maybe-render-last-and-update-message-parts
                       (type)
                       (unless (eq type last-type)
+                        (setf opencode-last-response-start
+                              (opencode--session-process-position))
                         (when last-start
                           (opencode--render-region last-type last-start)
                           (opencode--maybe-insert-block-spacing))
@@ -975,7 +981,10 @@ If CALLBACK is given, it will be called with the session after it is initialized
                                (let ((text (opencode--render-markdown (string-trim .text))))
                                  (unless (string-empty-p text)
                                    (pcase .type
-                                     ("text" (opencode--output text))
+                                     ("text"
+                                      (setf opencode-last-response-start
+                                            (opencode--session-process-position))
+                                      (opencode--output text))
                                      ("reasoning"
                                       (opencode--insert-reasoning-block
                                        text)))
@@ -1100,6 +1109,16 @@ bound to the exchange ids at point."
         (unless result
           (error "Unable to compact session")))
     (user-error "Not in an OpenCode session")))
+
+(defun opencode-scroll-to-last-response-block ()
+  "Scroll to the top of the last block of the last response."
+  (interactive)
+  (unless opencode-last-response-start
+    (user-error "No last response"))
+  (goto-char opencode-last-response-start)
+  (forward-word 1)
+  (backward-word 1)
+  (recenter-top-bottom 0))
 
 (defun opencode-sessions-redisplay ()
   "Refresh the session display table for DIRECTORY."

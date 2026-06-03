@@ -551,9 +551,10 @@ Also prompts for pending questions or permissions if any."
           (session.error (opencode-session--display-error .sessionID .error.data.message))
           (message.part.updated
            (opencode--maybe-run-file-edited-hook .part)
-           (opencode-session--update-part .part .delta .part.type))
-          (message.part.delta (opencode-session--update-part properties .delta
-                                                             (gethash .partID opencode-part-type)))
+           (opencode-session--update-part .part.id .part .delta .part.type))
+          (message.part.delta (opencode-session--update-part
+                               .partID properties .delta
+                               (gethash .partID opencode-part-type)))
           (message.updated
            (opencode--record-files-edited-this-turn .info)
            (opencode-session--message-updated .info))

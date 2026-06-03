@@ -127,7 +127,8 @@ Requests are processed FIFO.")
 
 (defvar opencode-assistant-messages
   nil
-  "An alist mapping all currently updating assistant message ids, to start pos.")
+  "An alist mapping currently updating assistant message ids to render state.
+\(id type part-id)")
 
 (defun opencode-cycle-session-agent ()
   "Switch to the next agent in `opencode-session-agents'."
@@ -761,61 +762,69 @@ END defaults to the process mark."
                         'opencode-request-margin-highlight)
   (goto-char (point-max)))
 
-(defun opencode-session--update-part (part delta type)
+(defun opencode-session--update-part (part-id part delta type)
   "Display PART, partial message output. DELTA is new text since last update.
-TYPE is text|reasoning|tool|step-finish"
+TYPE is text|reasoning|tool|step-finish
+PART-ID is id of PART"
   (let-alist part
     (if .time.end
-        (remhash .id opencode-part-type)
+        (remhash part-id opencode-part-type)
       ;; only will follow up with message.part.delta updates when it has "" as text
       (when (string-empty-p .text)
-        (puthash .id type opencode-part-type)))
+        (puthash part-id type opencode-part-type)))
     (when-let ((buffer (gethash .sessionID opencode-session-buffers))
                (process (get-buffer-process buffer))
                (message-parts (assoc-string .messageID opencode-assistant-messages)))
       (with-current-buffer buffer
-        (let ((last-type (cadr message-parts))
-              (last-start (cddr message-parts)))
-          (cl-flet ((maybe-render-last-and-update-message-parts
-                      (type)
-                      (unless (eq type last-type)
-                        (setf opencode-last-response-start
-                              (opencode--session-process-position))
-                        (when last-start
-                          (opencode--render-region last-type last-start)
-                          (opencode--maybe-insert-block-spacing))
-                        (setf (cdr message-parts) (cons type
-                                                        (marker-position (process-mark process)))))))
-            ;; don't display margins on extra whitespace
-            (when (and delta
-                       (not (string= type last-type)))
-              (setf delta (string-trim-left delta)))
-            (pcase type
-              ((and "reasoning" (guard delta))
-               (maybe-render-last-and-update-message-parts 'reasoning)
-               (let ((start (opencode--stream-line-start)))
-                 (opencode--insert-reasoning-block delta)
-                 (opencode--render-region 'reasoning start)))
-              ((and "text" (guard delta))
-               (maybe-render-last-and-update-message-parts 'text)
-               (let ((start (opencode--stream-line-start)))
-                 (opencode--output delta)
-                 (opencode--render-region 'text start)))
-              ("tool" (maybe-render-last-and-update-message-parts 'tool)
-               (when (and
-                      ;; only when it first starts running
-                      (string= .state.status "running")
-                      ;; avoid duplicate display
-                      (not (gethash .callID opencode--tool-calls-displayed))
-                      ;; skip the question tool, handled by question.asked event
-                      (not (string= .tool "question")))
-                 (puthash .callID t opencode--tool-calls-displayed)
-                 (opencode--insert-tool-block .tool .state.input))
-               (opencode--maybe-insert-tool-output part))
-              ("step-finish"
-               (when (string= "stop" .reason)
-                 (opencode--render-region last-type last-start)
-                 (opencode--maybe-insert-block-spacing))))))))))
+        (let* ((last-state (cdr message-parts))
+               (last-type (car last-state))
+               (last-part-id (cadr last-state))
+               (last-start (cddr last-state))
+               (current-type (pcase type
+                               ("reasoning" 'reasoning)
+                               ("text" 'text)
+                               ("tool" 'tool)
+                               (_ nil)))
+               (new-block-p (not (equal part-id last-part-id))))
+          ;; don't display margins on extra whitespace
+          (when (and delta
+                     current-type
+                     new-block-p)
+            (setf delta (string-trim-left delta)))
+          (when (and current-type new-block-p)
+            (setf opencode-last-response-start
+                  (opencode--session-process-position))
+            (when last-start
+              (opencode--render-region last-type last-start)
+              (opencode--maybe-insert-block-spacing))
+            (setf (cdr message-parts)
+                  (cons current-type
+                        (cons part-id
+                              (marker-position (process-mark process))))))
+          (pcase type
+            ((and "reasoning" (guard delta))
+             (let ((start (opencode--stream-line-start)))
+               (opencode--insert-reasoning-block delta)
+               (opencode--render-region 'reasoning start)))
+            ((and "text" (guard delta))
+             (let ((start (opencode--stream-line-start)))
+               (opencode--output delta)
+               (opencode--render-region 'text start)))
+            ("tool"
+             (when (and
+                    ;; only when it first starts running
+                    (string= .state.status "running")
+                    ;; avoid duplicate display
+                    (not (gethash .callID opencode--tool-calls-displayed))
+                    ;; skip the question tool, handled by question.asked event
+                    (not (string= .tool "question")))
+               (puthash .callID t opencode--tool-calls-displayed)
+               (opencode--insert-tool-block .tool .state.input))
+             (opencode--maybe-insert-tool-output part))
+            ("step-finish"
+             (when (string= "stop" .reason)
+               (opencode--render-region last-type last-start)
+               (opencode--maybe-insert-block-spacing)))))))))
 
 (defface opencode-request-margin-highlight
   '((t :inherit outline-1 :height reset))

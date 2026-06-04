@@ -117,6 +117,9 @@ Requests are processed FIFO.")
 (defvar-local opencode--files-edited-this-turn nil
   "Files edited by opencode during the current turn.")
 
+(defvar-local opencode--skip-files-finished-editing-hook-on-next-idle nil
+  "Non-nil means the next session idle should not run finished-editing hooks.")
+
 (defvar opencode-session-buffers
   (make-hash-table :test 'equal)
   "A mapping of session ids to Emacs buffers.")
@@ -370,6 +373,14 @@ Each element is (display-name . (provider-id provider-name model-id))."
       (with-current-buffer buffer
         (setq opencode-session-status status)
         (force-mode-line-update)))))
+
+(defun opencode--defer-files-finished-editing-hook (session-id)
+  "Return and clear SESSION-ID's next-idle finished-editing hook skip flag."
+  (when-let (buffer (gethash session-id opencode-session-buffers))
+    (when (buffer-live-p buffer)
+      (with-current-buffer buffer
+        (prog1 opencode--skip-files-finished-editing-hook-on-next-idle
+          (setq opencode--skip-files-finished-editing-hook-on-next-idle nil))))))
 
 (define-derived-mode opencode-session-mode comint-mode "OpenCode"
   "Major mode for interacting with an opencode session."
@@ -1140,9 +1151,11 @@ bound to the exchange ids at point."
 (defun opencode-abort-session ()
   "Abort a busy session and go back to prompt."
   (interactive)
+  (setq opencode--skip-files-finished-editing-hook-on-next-idle t)
   (opencode-api-abort-session (opencode-session-id)
       success-p
     (unless success-p
+      (setq opencode--skip-files-finished-editing-hook-on-next-idle nil)
       (message "Failed to abort session."))))
 
 (defun opencode-session-control-toggle-verbose ()

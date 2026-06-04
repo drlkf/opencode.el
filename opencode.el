@@ -380,7 +380,9 @@ Or nil to disable logging.")
             (files (opencode--message-summary-diff-files info)))
         (when (buffer-live-p buffer)
           (with-current-buffer buffer
-            (setq opencode--files-edited-this-turn files)))))))
+            (setq opencode--files-edited-this-turn
+                  (delete-dups
+                   (append opencode--files-edited-this-turn files)))))))))
 
 (defun opencode--maybe-run-files-finished-editing-hook (session-id)
   "Run `opencode-files-finished-editing-functions' for SESSION-ID's pending files."
@@ -509,7 +511,9 @@ Also prompts for pending questions or permissions if any."
         (cl-case msg-type
           (tui.toast.show (opencode--toast-show properties))
           (session.idle
-           (opencode--maybe-run-files-finished-editing-hook .sessionID)
+           (unless (opencode--defer-files-finished-editing-hook
+                    .sessionID)
+             (opencode--maybe-run-files-finished-editing-hook .sessionID))
            (opencode-api-session (.sessionID)
                session
              (let ((buffer (gethash .sessionID opencode-session-buffers)))

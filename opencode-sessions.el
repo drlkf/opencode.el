@@ -17,6 +17,7 @@
 (require 'markdown-mode)
 (require 'opencode-api)
 (require 'opencode-common)
+(require 'opencode-convert)
 (require 'opencode-format-tool-calls)
 (require 'project)
 (require 'vtable)
@@ -48,6 +49,7 @@
 (defvar opencode-session-mode-map
   (define-keymap
     "C-c C-y" 'opencode-yank-code-block
+    "C-c Y" 'opencode-copy-conversation
     "C-c C-c" 'opencode-abort-session
     "C-c C-p" 'opencode-respond-permission
     "C-c x" 'opencode-kill-session
@@ -389,6 +391,26 @@ Each element is (display-name . (provider-id provider-name model-id))."
     (copy-region-as-kill (point)
                          (progn (markdown-forward-block)
                                 (point)))))
+
+(defun opencode-copy-conversation ()
+  "Copy the current conversation as a Markdown transcript.
+The transcript is built from raw session messages, so hidden tool output is
+included regardless of `opencode-show-tool-output'.
+
+Useful if you have separate usage limits for opencode vs webchat, so you can let
+it gather context and start a plan in opencode, and then iterate on the plan
+in webchat."
+  (interactive)
+  (unless opencode-session-id
+    (user-error "Not in an OpenCode session"))
+  (message "Fetching conversation...")
+  (opencode-api-session-messages (opencode-session-id)
+      messages
+    (let ((transcript (opencode--conversation-to-markdown messages)))
+      (kill-new transcript)
+      (message "Copied conversation (%d messages, %d characters)"
+               (length messages)
+               (length transcript)))))
 
 (defun opencode-kill-session (&optional session)
   "Kill SESSION."

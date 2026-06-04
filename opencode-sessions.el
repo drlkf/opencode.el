@@ -745,13 +745,17 @@ END defaults to the process mark."
   (when (and (seq-contains-p '(reasoning text) type)
              (< start end))
     (let ((inhibit-read-only t)
+          (follow-output (= (point) end))
           (text (buffer-substring-no-properties start end)))
-      (ignore-errors
-        (setf text (opencode--render-markdown text)))
-      (delete-region start end)
-      (cl-case type
-        (reasoning (opencode--insert-reasoning-block text))
-        (text (opencode--output text))))))
+      (save-excursion
+        (ignore-errors
+          (setf text (opencode--render-markdown text)))
+        (delete-region start end)
+        (cl-case type
+          (reasoning (opencode--insert-reasoning-block text))
+          (text (opencode--output text))))
+      (when follow-output
+        (goto-char (opencode--session-process-position))))))
 
 (defun opencode--stream-line-start ()
   "Return the current line start at process mark."
@@ -796,8 +800,7 @@ END defaults to the process mark."
   (opencode--output (propertize "> " 'invisible t))
   (opencode--add-margin (car comint-last-prompt)
                         (cdr comint-last-prompt)
-                        'opencode-request-margin-highlight)
-  (goto-char (point-max)))
+                        'opencode-request-margin-highlight))
 
 (defun opencode-session--update-part (part-id part delta type)
   "Display PART, partial message output. DELTA is new text since last update.

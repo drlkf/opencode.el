@@ -254,7 +254,14 @@ the optional fourth element is a number to sort by."
 (defun opencode--buttonize-file-references (string)
   "Return STRING with backticked file references turned into buttons."
   (let ((start 0)
-        (regexp "`\\([[:alnum:]._~/][[:alnum:]@%_./~+-]*\\)\\(?::\\([0-9]+\\)\\)?`")
+        (regexp
+         (rx "`"
+             (group (any alnum "._~/")
+                    (* (any alnum "@%_./~+-")))
+             (optional ":"
+                       (group (+ digit))
+                       (optional "-" (+ digit)))
+             "`"))
         parts)
     (while (string-match regexp string start)
       (let* ((match-beg (match-beginning 0))

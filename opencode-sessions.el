@@ -135,6 +135,14 @@ Requests are processed FIFO.")
   "An alist mapping currently updating assistant message ids to render state.
 \(id type part-id)")
 
+(defmacro opencode--with-session-buffer (session-id &rest body)
+  "Run BODY in the live session buffer for SESSION-ID."
+  (declare (indent 1))
+  `(when-let ((buffer (gethash ,session-id opencode-session-buffers)))
+     (when (buffer-live-p buffer)
+       (with-current-buffer buffer
+         ,@body))))
+
 (defun opencode-cycle-session-agent ()
   "Switch to the next agent in `opencode-session-agents'."
   (interactive)
@@ -368,19 +376,15 @@ Each element is (display-name . (provider-id provider-name model-id))."
 
 (defun opencode-session--set-status (session-id status)
   "Set STATUS for the session with SESSION-ID and update modeline."
-  (when-let (buffer (gethash session-id opencode-session-buffers))
-    (when (buffer-live-p buffer)
-      (with-current-buffer buffer
-        (setq opencode-session-status status)
-        (force-mode-line-update)))))
+  (opencode--with-session-buffer session-id
+    (setq opencode-session-status status)
+    (force-mode-line-update)))
 
 (defun opencode--defer-files-finished-editing-hook (session-id)
   "Return and clear SESSION-ID's next-idle finished-editing hook skip flag."
-  (when-let (buffer (gethash session-id opencode-session-buffers))
-    (when (buffer-live-p buffer)
-      (with-current-buffer buffer
-        (prog1 opencode--skip-files-finished-editing-hook-on-next-idle
-          (setq opencode--skip-files-finished-editing-hook-on-next-idle nil))))))
+  (opencode--with-session-buffer session-id
+    (prog1 opencode--skip-files-finished-editing-hook-on-next-idle
+      (setq opencode--skip-files-finished-editing-hook-on-next-idle nil))))
 
 (define-derived-mode opencode-session-mode comint-mode "OpenCode"
   "Major mode for interacting with an opencode session."
@@ -724,12 +728,11 @@ Preserve any pending input context while sending STRING as a plain prompt."
     (pcase .role
       ("assistant"
        (when .time.completed
-         (when-let (buffer (map-elt opencode-session-buffers .sessionID))
-           (with-current-buffer buffer
-             (setq opencode-session-tokens
-                   (+ .tokens.input .tokens.output .tokens.reasoning
-                      .tokens.cache.read .tokens.cache.write))
-             (force-mode-line-update))))
+         (opencode--with-session-buffer .sessionID
+           (setq opencode-session-tokens
+                 (+ .tokens.input .tokens.output .tokens.reasoning
+                    .tokens.cache.read .tokens.cache.write))
+           (force-mode-line-update)))
        (if (or .finish .error)
            (setf opencode-assistant-messages
                  (assoc-delete-all .id opencode-assistant-messages))
@@ -806,10 +809,9 @@ PART-ID is id of PART"
       ;; only will follow up with message.part.delta updates when it has "" as text
       (when (string-empty-p .text)
         (puthash part-id type opencode-part-type)))
-    (when-let ((buffer (gethash .sessionID opencode-session-buffers))
-               (process (get-buffer-process buffer))
-               (message-parts (assoc-string .messageID opencode-assistant-messages)))
-      (with-current-buffer buffer
+    (opencode--with-session-buffer .sessionID
+      (when-let ((process (get-buffer-process (current-buffer)))
+                 (message-parts (assoc-string .messageID opencode-assistant-messages)))
         (let* ((last-state (cdr message-parts))
                (last-type (car last-state))
                (last-part-id (cadr last-state))
@@ -1142,11 +1144,10 @@ bound to the exchange ids at point."
 
 (defun opencode-session--display-error (session-id message)
   "Display error MESSAGE in SESSION-ID and then new prompt."
-  (when-let (buffer (gethash session-id opencode-session-buffers))
-    (with-current-buffer buffer
-      (opencode--output (propertize message 'face 'error))
-      (opencode--output "\n\n")
-      (opencode--show-prompt))))
+  (opencode--with-session-buffer session-id
+    (opencode--output (propertize message 'face 'error))
+    (opencode--output "\n\n")
+    (opencode--show-prompt)))
 
 (defun opencode-abort-session ()
   "Abort a busy session and go back to prompt."

@@ -376,32 +376,28 @@ Or nil to disable logging.")
   "Record INFO summary diff files for the session's current turn."
   (let-alist info
     (when (and .sessionID (map-nested-elt info '(summary diffs)))
-      (let ((buffer (gethash .sessionID opencode-session-buffers))
-            (files (opencode--message-summary-diff-files info)))
-        (when (buffer-live-p buffer)
-          (with-current-buffer buffer
-            (setq opencode--files-edited-this-turn
-                  (delete-dups
-                   (append opencode--files-edited-this-turn files)))))))))
+      (let ((files (opencode--message-summary-diff-files info)))
+        (opencode--with-session-buffer .sessionID
+          (setq opencode--files-edited-this-turn
+                (delete-dups
+                 (append opencode--files-edited-this-turn files))))))))
 
 (defun opencode--maybe-run-files-finished-editing-hook (session-id)
   "Run `opencode-files-finished-editing-functions' for SESSION-ID's pending files."
-  (when-let ((buffer (gethash session-id opencode-session-buffers)))
-    (when (buffer-live-p buffer)
-      (with-current-buffer buffer
-        (when opencode--files-edited-this-turn
-          (let ((files opencode--files-edited-this-turn))
-            (setq opencode--files-edited-this-turn nil)
-            (when-let ((hooks (append opencode-files-finished-editing-functions
-                                      opencode-project-files-finished-editing-functions)))
-              (setq opencode--files-finished-editing-queue
-                    (append opencode--files-finished-editing-queue
-                            (list (list :session-buffer (current-buffer)
-                                        :files files
-                                        :hooks hooks
-                                        :diagnostics nil
-                                        :active-hook nil))))
-              (opencode--maybe-start-files-finished-editing-hook))))))))
+  (opencode--with-session-buffer session-id
+    (when opencode--files-edited-this-turn
+      (let ((files opencode--files-edited-this-turn))
+        (setq opencode--files-edited-this-turn nil)
+        (when-let ((hooks (append opencode-files-finished-editing-functions
+                                  opencode-project-files-finished-editing-functions)))
+          (setq opencode--files-finished-editing-queue
+                (append opencode--files-finished-editing-queue
+                        (list (list :session-buffer (current-buffer)
+                                    :files files
+                                    :hooks hooks
+                                    :diagnostics nil
+                                    :active-hook nil))))
+          (opencode--maybe-start-files-finished-editing-hook))))))
 
 (defun opencode--indent-files (files)
   "Indent FILES with Emacs."
@@ -516,12 +512,10 @@ Also prompts for pending questions or permissions if any."
              (opencode--maybe-run-files-finished-editing-hook .sessionID))
            (opencode-api-session (.sessionID)
                session
-             (let ((buffer (gethash .sessionID opencode-session-buffers)))
-               (when (buffer-live-p buffer)
-                 (with-current-buffer buffer
-                   (opencode--show-prompt)))
+             (opencode--with-session-buffer .sessionID
+               (opencode--show-prompt)
                (unless (or
-                        (opencode--buffer-active-p buffer)
+                        (opencode--buffer-active-p (current-buffer))
                         ;; don't show alert for subagent sessions
                         (alist-get 'parentID session))
                  (opencode--toast-show `((title . "OpenCode Finished")
@@ -547,11 +541,10 @@ Also prompts for pending questions or permissions if any."
              (when (buffer-live-p buffer)
                (with-current-buffer buffer
                  (opencode-sessions-redisplay))))
-           (when-let (buffer (map-elt opencode-session-buffers .info.id))
-             (with-current-buffer buffer
-               (cl-case msg-type
-                 (session.updated (rename-buffer (format "*OpenCode: %s*" .info.title) t))
-                 (session.deleted (delete-process))))))
+           (opencode--with-session-buffer .info.id
+             (cl-case msg-type
+               (session.updated (rename-buffer (format "*OpenCode: %s*" .info.title) t))
+               (session.deleted (delete-process)))))
           (session.error (opencode-session--display-error .sessionID .error.data.message))
           (message.part.updated
            (opencode--maybe-run-file-edited-hook .part)

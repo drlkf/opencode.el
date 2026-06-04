@@ -1016,9 +1016,15 @@ If CALLBACK is given, it will be called with the session after it is initialized
                        (setq opencode-session-tokens
                              (+ .tokens.input .tokens.output .tokens.reasoning
                                 .tokens.cache.read .tokens.cache.write))))))
-                (opencode--show-prompt)
-                (when callback
-                  (funcall callback session))))
+                (opencode-api-sessions-status
+                  busy-sessions
+                  (if-let (session-status (cdr (assoc-string .id busy-sessions)))
+                      (opencode-session--set-status
+                       .id
+                       (alist-get 'type session-status))
+                    (opencode--show-prompt))
+                  (when callback
+                    (funcall callback session)))))
             (if pop-to-buffer
                 (pop-to-buffer buffer)
               (switch-to-buffer buffer))))))))

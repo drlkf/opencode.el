@@ -163,7 +163,7 @@ These colors can be configured through the =opencode-*-margin-highlight= faces.
 |     =C-c l=      | list and select from all sessions in the same project                                                                      |
 |     =C-c c=      | fuzzy select a child session to open - children are all subagent  sessions spawned by this session                         |
 |     =C-c C=      | compact session                                                                                                            |
-|     =C-c t=      | scroll to the top of the final part of the last assistant response                                                         |
+|     =C-c t=      | scroll to the top of the text part of the last assistant response                                                          |
 |     =C-c p=      | open parent session - when in a subagent session, open the session that spawned it                                         |
 |     =C-c f=      | select a file to add to context, if called with a prefix argument then select a directory                                  |
 |     =C-c b=      | select a buffer to add to context                                                                                          |

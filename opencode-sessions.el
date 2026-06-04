@@ -58,7 +58,7 @@
     "C-c l" 'opencode-select-session
     "C-c c" 'opencode-select-child-session
     "C-c C" 'opencode-compact-session
-    "C-c t" 'opencode-scroll-to-last-response-block
+    "C-c t" 'opencode-scroll-to-last-response-start
     "C-c p" 'opencode-open-parent
     "C-c f" 'opencode-add-file
     "C-c b" 'opencode-add-buffer-dwim
@@ -123,7 +123,7 @@ Requests are processed FIFO.")
   "A hash table containing all callID that have already been displayed.")
 
 (defvar-local opencode-last-response-start nil
-  "Position of the start of the final block of the assistant response.")
+  "Position of the start of the latest assistant text block.")
 
 (defvar opencode-assistant-messages
   nil
@@ -792,8 +792,10 @@ PART-ID is id of PART"
                      new-block-p)
             (setf delta (string-trim-left delta)))
           (when (and current-type new-block-p)
-            (setf opencode-last-response-start
-                  (opencode--session-process-position))
+            (when (and (eq current-type 'text)
+                       (not (eq last-type 'text)))
+              (setf opencode-last-response-start
+                    (opencode--session-process-position)))
             (when last-start
               (opencode--render-region last-type last-start)
               (opencode--maybe-insert-block-spacing))
@@ -990,24 +992,27 @@ If CALLBACK is given, it will be called with the session after it is initialized
                     (pcase .role
                       ("user" (opencode--replay-user-request message))
                       ("assistant"
-                       (dolist (part (alist-get 'parts message))
-                         (let-alist part
-                           (if (string= .type "tool")
-                               (progn
-                                 (opencode--insert-tool-block .tool .state.input)
-                                 (opencode--maybe-insert-tool-output message))
-                             (when .text
-                               (let ((text (opencode--render-markdown (string-trim .text))))
-                                 (unless (string-empty-p text)
-                                   (pcase .type
-                                     ("text"
-                                      (setf opencode-last-response-start
-                                            (opencode--session-process-position))
-                                      (opencode--output text))
-                                     ("reasoning"
-                                      (opencode--insert-reasoning-block
-                                       text)))
-                                   (opencode--output "\n\n")))))))
+                       (let (last-part-type)
+                         (dolist (part (alist-get 'parts message))
+                           (let-alist part
+                             (if (string= .type "tool")
+                                 (progn
+                                   (opencode--insert-tool-block .tool .state.input)
+                                   (opencode--maybe-insert-tool-output message))
+                               (when .text
+                                 (let ((text (opencode--render-markdown (string-trim .text))))
+                                   (unless (string-empty-p text)
+                                     (pcase .type
+                                       ("text"
+                                        (unless (equal last-part-type "text")
+                                          (setf opencode-last-response-start
+                                                (opencode--session-process-position)))
+                                        (opencode--output text))
+                                       ("reasoning"
+                                        (opencode--insert-reasoning-block
+                                         text)))
+                                     (setq last-part-type .type)
+                                     (opencode--output "\n\n"))))))))
                        (setq opencode-session-tokens
                              (+ .tokens.input .tokens.output .tokens.reasoning
                                 .tokens.cache.read .tokens.cache.write))))))
@@ -1129,8 +1134,8 @@ bound to the exchange ids at point."
           (error "Unable to compact session")))
     (user-error "Not in an OpenCode session")))
 
-(defun opencode-scroll-to-last-response-block ()
-  "Scroll to the top of the last block of the last response."
+(defun opencode-scroll-to-last-response-start ()
+  "Scroll to the top of the last text part of assistant response."
   (interactive)
   (unless opencode-last-response-start
     (user-error "No last response"))

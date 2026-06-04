@@ -597,22 +597,23 @@ Otherwise prompt for file in current project."
 (defun opencode-add-subagent ()
   "Insert a subagent mention into the current input."
   (interactive)
-  (if (comint-after-pmark-p)
-      (let ((subagents (cl-loop for agent in opencode-agents
-                                when (string= "subagent" (alist-get 'mode agent))
-                                collect agent)))
-        (unless subagents
-          (user-error "No subagents available"))
-        (let ((name (opencode--annotated-completion
-                     "Subagent: "
-                     (cl-loop for agent in subagents
-                              collect (let-alist agent
-                                        (list .name .name .description))))))
-          (push `((type . "agent")
-                  (name . ,name))
-                opencode--extra-parts)
-          (opencode--insert-intangible (concat "@" name) 'agent-name name)))
-    (call-interactively #'self-insert-command)))
+  (call-interactively #'self-insert-command)
+  (when (comint-after-pmark-p)
+    (let ((subagents (cl-loop for agent in opencode-agents
+                              when (string= "subagent" (alist-get 'mode agent))
+                              collect agent)))
+      (unless subagents
+        (user-error "No subagents available"))
+      (let ((name (opencode--annotated-completion
+                   "Subagent: "
+                   (cl-loop for agent in subagents
+                            collect (let-alist agent
+                                      (list .name .name .description))))))
+        (push `((type . "agent")
+                (name . ,name))
+              opencode--extra-parts)
+        (delete-char -1)
+        (opencode--insert-intangible (concat "@" name) 'agent-name name)))))
 
 (defun opencode--send-input (_proc string)
   "Send STRING as input to current opencode session."

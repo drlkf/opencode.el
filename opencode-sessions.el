@@ -744,9 +744,15 @@ END defaults to the process mark."
   (setq end (or end (opencode--session-process-position)))
   (when (and (seq-contains-p '(reasoning text) type)
              (< start end))
-    (let ((inhibit-read-only t)
-          (follow-output (= (point) end))
-          (text (buffer-substring-no-properties start end)))
+    ;; `delete-region' relocates points inside the deleted text to START.
+    ;; Treat points in the rendered range as following output instead.
+    (let* ((inhibit-read-only t)
+           (follow-output (<= start (point) end))
+           (follow-windows
+            (seq-filter (lambda (window)
+                          (<= start (window-point window) end))
+                        (get-buffer-window-list (current-buffer) nil t)))
+           (text (buffer-substring-no-properties start end)))
       (save-excursion
         (ignore-errors
           (setf text (opencode--render-markdown text)))
@@ -754,8 +760,13 @@ END defaults to the process mark."
         (cl-case type
           (reasoning (opencode--insert-reasoning-block text))
           (text (opencode--output text))))
-      (when follow-output
-        (goto-char (opencode--session-process-position))))))
+      (let ((new-end (opencode--session-process-position)))
+        (dolist (window follow-windows)
+          (when (and (window-live-p window)
+                     (eq (window-buffer window) (current-buffer)))
+            (set-window-point window new-end)))
+        (when follow-output
+          (goto-char new-end))))))
 
 (defun opencode--stream-line-start ()
   "Return the current line start at process mark."

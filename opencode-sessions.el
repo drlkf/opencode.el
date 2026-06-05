@@ -194,16 +194,20 @@ Accepts (\"name\" . buffer) to work as a read-buffer predicate."
       (opencode-open-session (pop opencode-alerted-sessions))
     (message "No idle sessions")))
 
+(declare-function opencode-autoconnect "opencode")
+
 (defun opencode-select-session ()
   "Select and open a session from the current project using completion."
   (interactive)
-  (opencode-api-sessions sessions
-    (opencode--select-sessions "Session: "
-                               (seq-remove (lambda (session)
-                                             (alist-get 'parentID session))
-                                           sessions)
-                               (format "No sessions in %s" default-directory)
-                               :pop-to-buffer nil)))
+  (opencode-autoconnect
+   (lambda ()
+     (opencode-api-sessions sessions
+       (opencode--select-sessions "Session: "
+                                  (seq-remove (lambda (session)
+                                                (alist-get 'parentID session))
+                                              sessions)
+                                  (format "No sessions in %s" default-directory)
+                                  :pop-to-buffer nil)))))
 
 (cl-defun opencode--select-sessions (prompt sessions no-sessions-message &key (pop-to-buffer t))
   "Select a session from SESSIONS to open.

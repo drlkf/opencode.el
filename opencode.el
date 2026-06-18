@@ -540,7 +540,22 @@ Also prompts for pending questions or permissions if any."
            (dolist (buffer (map-elt opencode--session-control-buffers .info.projectID))
              (when (buffer-live-p buffer)
                (with-current-buffer buffer
-                 (opencode-sessions-redisplay))))
+                 (when opencode--sessions-cache
+                   (cl-case msg-type
+                     (session.created
+                      (push .info opencode--sessions-cache))
+                     (session.updated
+                      (setq opencode--sessions-cache
+                            (mapcar (lambda (s)
+                                      (if (equal (alist-get 'id s) (alist-get 'id .info))
+                                          .info s))
+                                    opencode--sessions-cache)))
+                     (session.deleted
+                      (setq opencode--sessions-cache
+                            (cl-remove-if (lambda (s)
+                                            (equal (alist-get 'id s) .info.id))
+                                          opencode--sessions-cache))))
+                   (opencode--sessions-render)))))
            (opencode--with-session-buffer .info.id
              (cl-case msg-type
                (session.updated (rename-buffer (format "*OpenCode: %s*" .info.title) t))

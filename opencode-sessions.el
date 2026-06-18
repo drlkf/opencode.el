@@ -1213,65 +1213,72 @@ bound to the exchange ids at point."
   (backward-word 1)
   (recenter-top-bottom 0))
 
+(defvar-local opencode--sessions-cache nil
+  "Cached sessions list for buffer-local incremental updates.")
+
+(defun opencode--sessions-render ()
+  (let ((inhibit-read-only t)
+        (point (point))
+        (sessions (if opencode-session-control-verbose
+                      opencode--sessions-cache
+                    (seq-remove (lambda (session)
+                                  (alist-get 'parentID session))
+                                opencode--sessions-cache)))
+        cache)
+    (erase-buffer)
+    (if sessions
+        (make-vtable
+         :columns '("Title"
+                    (:name "Branch" :min-width 6)
+                    (:name "Last Updated" :width 12
+                     :formatter opencode--format-time-ago
+                     :primary ascend)
+                    (:name "Files changed" :width 13 :align right)
+                    (:name "Created at" :width 10
+                     :formatter opencode--format-time-ago))
+         :objects sessions
+         :actions '("x" opencode-kill-session
+                    "R" opencode-rename-session
+                    "s" opencode-share-session
+                    "u" opencode-unshare-session
+                    "RET" opencode-open-session-same-window
+                    "o" opencode-open-session-same-window)
+         :getter (lambda (object column vtable)
+                   (let-alist object
+                     (pcase (vtable-column vtable column)
+                       ("Title" (if .share
+                                    (concat (propertize "shared " 'face
+                                                        '(bold opencode-request-margin-highlight))
+                                            .title)
+                                  .title))
+                       ("Branch" (if (and .directory (file-exists-p .directory))
+                                     (let ((default-directory .directory))
+                                       (with-memoization
+                                           (map-elt cache .directory)
+                                         (magit-get-current-branch)))
+                                   "-"))
+                       ("Last Updated" (opencode--time-ago object 'updated))
+                       ("Files changed" (let-alist .summary
+                                          (if (opencode--json-falsy .files)
+                                              "none"
+                                            (format "%d  +%d-%d"
+                                                    .files
+                                                    (if (opencode--json-falsy .additions)
+                                                        0 .additions)
+                                                    (if (opencode--json-falsy .deletions)
+                                                        0 .deletions)))))
+                       ("Created at" (opencode--time-ago object 'created)))))
+         :separator-width 3
+         :keymap opencode-session-control-mode-map)
+      (insert "No sessions in " (or default-directory "unknown directory")))
+    (goto-char point)))
+
 (defun opencode-sessions-redisplay ()
   "Refresh the session display table for DIRECTORY."
   (interactive)
   (opencode-api-sessions sessions
-    (let ((inhibit-read-only t)
-          (point (point))
-          (sessions (if opencode-session-control-verbose
-                        sessions
-                      (seq-remove (lambda (session)
-                                    (alist-get 'parentID session))
-                                  sessions)))
-          cache)
-      (erase-buffer)
-      (if sessions
-          (make-vtable
-           :columns '("Title"
-                      (:name "Branch" :min-width 6)
-                      (:name "Last Updated" :width 12
-                       :formatter opencode--format-time-ago
-                       :primary ascend)
-                      (:name "Files changed" :width 13 :align right)
-                      (:name "Created at" :width 10
-                       :formatter opencode--format-time-ago))
-           :objects sessions
-           :actions '("x" opencode-kill-session
-                      "R" opencode-rename-session
-                      "s" opencode-share-session
-                      "u" opencode-unshare-session
-                      "RET" opencode-open-session-same-window
-                      "o" opencode-open-session-same-window)
-           :getter (lambda (object column vtable)
-                     (let-alist object
-                       (pcase (vtable-column vtable column)
-                         ("Title" (if .share
-                                      (concat (propertize "shared " 'face
-                                                          '(bold opencode-request-margin-highlight))
-                                              .title)
-                                    .title))
-                         ("Branch" (if (and .directory (file-exists-p .directory))
-                                       (let ((default-directory .directory))
-                                         (with-memoization
-                                             (map-elt cache .directory)
-                                           (magit-get-current-branch)))
-                                     "-"))
-                         ("Last Updated" (opencode--time-ago object 'updated))
-                         ("Files changed" (let-alist .summary
-                                            (if (opencode--json-falsy .files)
-                                                "none"
-                                              (format "%d  +%d-%d"
-                                                      .files
-                                                      (if (opencode--json-falsy .additions)
-                                                          0 .additions)
-                                                      (if (opencode--json-falsy .deletions)
-                                                          0 .deletions)))))
-                         ("Created at" (opencode--time-ago object 'created)))))
-           :separator-width 3
-           :keymap opencode-session-control-mode-map)
-        (insert "No sessions in " (or default-directory "unknown directory")))
-      (goto-char point))))
+    (setq opencode--sessions-cache sessions)
+    (opencode--sessions-render)))
 
 (provide 'opencode-sessions)
 ;;; opencode-sessions.el ends here

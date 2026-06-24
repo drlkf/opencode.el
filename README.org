@@ -252,7 +252,7 @@ from the shared folder.
 - the =opencode-faces= group configures faces used when displaying sessions
 - =opencode-toast-function= is used to show toast notifications
 - =opencode-file-edited-functions= is a hook run after edit tool calls
-- ==opencode-files-finished-editing-functions== is a hook run after the assistant
+- =opencode-files-finished-editing-functions= is a hook run after the assistant
   response finishes, with all files that it edited
 - =opencode-project-files-finished-editing-functions= is a buffer local hook run
   after the assistant response finishes, that you can use for example to run

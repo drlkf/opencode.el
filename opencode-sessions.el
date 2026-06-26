@@ -1003,6 +1003,42 @@ PART-ID is id of PART"
   "Open SESSION using the current window."
   (opencode-open-session session :pop-to-buffer nil))
 
+(defun opencode--replay-session-messages (messages)
+  "Display past session MESSAGES."
+  (let ((inhibit-redisplay t)
+        (comint-output-filter-functions
+         (remove #'comint-postoutput-scroll-to-bottom
+                 comint-output-filter-functions)))
+    (dolist (message messages)
+      (let-alist (alist-get 'info message)
+        (pcase .role
+          ("user" (opencode--replay-user-request message))
+          ("assistant"
+           (let (last-part-type)
+             (dolist (part (alist-get 'parts message))
+               (let-alist part
+                 (if (string= .type "tool")
+                     (progn
+                       (opencode--insert-tool-block .tool .state.input)
+                       (opencode--maybe-insert-tool-output message))
+                   (when .text
+                     (let ((text (opencode--render-markdown (string-trim .text))))
+                       (unless (string-empty-p text)
+                         (pcase .type
+                           ("text"
+                            (unless (equal last-part-type "text")
+                              (setf opencode-last-response-start
+                                    (opencode--session-process-position)))
+                            (opencode--output text))
+                           ("reasoning"
+                            (opencode--insert-reasoning-block
+                             text)))
+                         (setq last-part-type .type)
+                         (opencode--output "\n\n"))))))))
+           (setq opencode-session-tokens
+                 (+ .tokens.input .tokens.output .tokens.reasoning
+                    .tokens.cache.read .tokens.cache.write))))))))
+
 (cl-defun opencode-open-session (session &key (pop-to-buffer t) callback)
   "Open comint based shell for SESSION.
 POP-TO-BUFFER controls whether to pop to or switch to the session buffer.
@@ -1041,35 +1077,7 @@ If CALLBACK is given, it will be called with the session after it is initialized
               (opencode-insert-logo)
               (opencode-api-session-messages (.id)
                   messages
-                (dolist (message messages)
-                  (let-alist (alist-get 'info message)
-                    (pcase .role
-                      ("user" (opencode--replay-user-request message))
-                      ("assistant"
-                       (let (last-part-type)
-                         (dolist (part (alist-get 'parts message))
-                           (let-alist part
-                             (if (string= .type "tool")
-                                 (progn
-                                   (opencode--insert-tool-block .tool .state.input)
-                                   (opencode--maybe-insert-tool-output message))
-                               (when .text
-                                 (let ((text (opencode--render-markdown (string-trim .text))))
-                                   (unless (string-empty-p text)
-                                     (pcase .type
-                                       ("text"
-                                        (unless (equal last-part-type "text")
-                                          (setf opencode-last-response-start
-                                                (opencode--session-process-position)))
-                                        (opencode--output text))
-                                       ("reasoning"
-                                        (opencode--insert-reasoning-block
-                                         text)))
-                                     (setq last-part-type .type)
-                                     (opencode--output "\n\n"))))))))
-                       (setq opencode-session-tokens
-                             (+ .tokens.input .tokens.output .tokens.reasoning
-                                .tokens.cache.read .tokens.cache.write))))))
+                (opencode--replay-session-messages messages)
                 (opencode-api-sessions-status
                   busy-sessions
                   (if-let (session-status (cdr (assoc-string .id busy-sessions)))

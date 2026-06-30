@@ -21,8 +21,8 @@
 (declare-function flycheck-error-format "flycheck" (err &optional with-file-name))
 (declare-function flycheck-error-level "flycheck" (err))
 (declare-function flycheck-error-line "flycheck" (err))
-(declare-function opencode-hook-finished "opencode" ())
-(declare-function opencode-report-diagnostic "opencode" (message))
+(declare-function opencode-hook-finished "opencode" (context))
+(declare-function opencode-report-diagnostic "opencode" (context message))
 
 (defvar flycheck-current-errors)
 (defvar flycheck-mode)
@@ -60,17 +60,18 @@ BASE-DIRECTORY is used to shorten FILE in the report."
             (file-relative-name file base-directory)
             status)))
 
-(defun opencode--flycheck-edited-files (files)
-  "Run Flycheck on FILES and report diagnostics for the active hook."
+(defun opencode--flycheck-edited-files (connection files)
+  "Run Flycheck on FILES and report diagnostics for the hook on CONNECTION."
   (when (and files (require 'flycheck nil t))
     (let ((base-directory default-directory)
           (remaining (length files)))
       (cl-labels ((finish (report)
-                    (when report
-                      (opencode-report-diagnostic report))
-                    (cl-decf remaining)
-                    (when (zerop remaining)
-                      (opencode-hook-finished))))
+                    (opencode--with-connection connection
+                      (when report
+                        (opencode-report-diagnostic connection report))
+                      (cl-decf remaining)
+                      (when (zerop remaining)
+                        (opencode-hook-finished connection)))))
         (dolist (file files)
           (with-current-buffer (find-file-noselect file)
             (revert-buffer t t t)

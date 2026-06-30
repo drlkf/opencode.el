@@ -20,8 +20,9 @@
 
 (require 'cl-lib)
 (require 'transient)
-(require 'opencode-api)
+
 (require 'opencode-common)
+(require 'opencode-api)
 (require 'opencode-sessions)
 
 ;;; Per-question display state (global, since transient is not buffer-local)
@@ -185,19 +186,21 @@
             (cl-incf opencode-question--current-index)
             (run-at-time 0 nil #'opencode-question--show-current))
         ;; All questions answered; send reply to server.
-        (opencode-api-reply-questions (opencode-question--question-id)
-            `((answers . ,(vconcat (nreverse opencode-question--answers))))
-            _result
-          nil)))))
+        (opencode--with-connection (opencode--buffer-connection)
+          (opencode-api-reply-questions (opencode-question--question-id)
+              `((answers . ,(vconcat (nreverse opencode-question--answers))))
+              _result
+            nil))))))
 
 (transient-define-suffix opencode-question--do-reject ()
   "Reject the question and notify the server."
   :transient nil
   (interactive)
   (setq opencode-question--handled t)
-  (opencode-api-reject-questions (opencode-question--question-id)
-      _result
-    nil))
+  (opencode--with-connection (opencode--buffer-connection)
+    (opencode-api-reject-questions (opencode-question--question-id)
+        _result
+      nil)))
 
 ;;; Transient exit hook
 
@@ -205,9 +208,10 @@
   "Handle transient exit by rejecting if not already confirmed or rejected."
   (remove-hook 'transient-exit-hook #'opencode-question--on-exit)
   (unless opencode-question--handled
-    (opencode-api-reject-questions (opencode-question--question-id)
-        _result
-      nil)))
+    (opencode--with-connection (opencode--buffer-connection)
+      (opencode-api-reject-questions (opencode-question--question-id)
+          _result
+        nil))))
 
 ;;; Dynamic children setup
 

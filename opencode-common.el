@@ -16,20 +16,56 @@
 (require 'map)
 (require 'markdown-mode)
 (require 'notifications)
-(require 'opencode-flycheck)
 (require 'project)
 (require 'savehist)
 
+(require 'opencode-flycheck)
+
+(let (;; Have to set this to make slot `setf` methods usable in other
+      ;; files.  The alternative would be to farm out the
+      ;; `cl-defstruct` into its own file and to `require` that file
+      ;; everywhere under `eval-and-compile`
+      (cl--struct-inline nil))
+  (cl-defstruct opencode--connection
+    "An OpenCode server connection."
+    name
+    host
+    port
+    (base-url "")
+    auth-username
+    auth-password
+
+    url
+    process
+
+    ;; SSE event process for the global event stream
+    event-subscription
+    ;; List of available providers and models
+    providers
+    ;; List of available agents excluding hidden
+    agents
+    ;; Alist mapping normalized project directories to available slash commands
+    slash-commands-by-directory
+    ;; An alist mapping of projectIDs to session control buffers for that project
+    session-control-buffers
+
+    ;; Current `opencode-files-finished-editing-functions' run context
+    files-finished-editing-current
+    ;; Queued `opencode-files-finished-editing-functions' run contexts
+    files-finished-editing-queue
+
+    ;; An alist mapping currently updating assistant message ids to render state
+    assistant-messages
+
+    ;; Time of most recent use
+    (last-used 0)
+    ;; Whether explicitly forgotten
+    dead))
+
 (defvar opencode-last-model '((providerID . "opencode")
                               (modelID . "big-pickle"))
-  "Last model used.")
+ "Last model used.")
 (add-to-list 'savehist-additional-variables 'opencode-last-model)
-
-(defvar opencode-agents nil
-  "List of available agents excluding hidden agents.")
-
-(defvar opencode--slash-commands-by-directory nil
-  "Alist mapping normalized project directories to available slash commands.")
 
 (defvar opencode-alerted-sessions nil
   "List of unvisited idle sessions.")
@@ -37,20 +73,66 @@
 (defvar opencode-last-session-buffer nil
   "Last active opencode session buffer.")
 
-(defvar opencode-providers nil
-  "List of available providers and models.")
-
 (defvar opencode-part-type (make-hash-table :test 'equal)
   "Mapping of part id's to their type.")
 
 (defvar-local opencode--extra-parts nil
   "An list containing extra parts to send with the next input.")
 
-(defvar opencode--event-subscription nil
-  "SSE event process for the global event stream.")
+(defmacro opencode--with-connection (connection &rest body)
+  "Run BODY with `opencode--current-connection' bound to CONNECTION."
+  (declare (indent 1))
+  `(let ((opencode--current-connection ,connection))
+     (ignore opencode--current-connection)
+     (when (and ,connection (called-interactively-p 'any))
+       (opencode--refresh-last-use ,connection))
+     ,@body))
 
-(defvar opencode--session-control-buffers nil
-  "An alist mapping of projectIDs to session control buffers for that project.")
+(defvar opencode--connection-registry)
+
+(defvar-local opencode--buffer-connection)
+(defun opencode--buffer-connection ()
+  (or (bound-and-true-p opencode--buffer-connection)
+      (opencode--connection-for-project)))
+
+(defun opencode--connection-live-p (connection)
+  (and connection
+       (or (process-live-p (opencode--connection-event-subscription connection))
+           (process-live-p (opencode--connection-process connection)))))
+
+(defun opencode--connection-status-string (connection)
+  (cond
+   ((opencode--connection-live-p connection) nil)
+   ((opencode--connection-dead connection)
+    (propertize (format " ⚠ DEAD %s " (opencode--format-connection connection))
+                'face 'warning))
+   (t
+    (propertize (format " ⚠ DISCONNECTED %s " (opencode--format-connection connection))
+                'face 'warning))))
+
+(define-minor-mode opencode--connection-dead-mode
+  "Indicate when buffer's connection is disconnected or dead."
+  :lighter (:eval (when (bound-and-true-p opencode--buffer-connection)
+                    (opencode--connection-status-string opencode--buffer-connection)))
+  :interactive nil
+  (when (derived-mode-p 'opencode-session-mode)
+    (read-only-mode (if opencode--connection-dead-mode 1 0))))
+
+(defun opencode--refresh-connection-state (connection)
+  "Update modeline + read-only for all opencode buffers bound to CONNECTION."
+  (let ((target (if (opencode--connection-live-p connection) 0 1)))
+    (dolist (entry (opencode--connection-session-control-buffers connection))
+      (dolist (buf (cdr entry))
+        (when (buffer-live-p buf)
+          (with-current-buffer buf
+            (opencode--connection-dead-mode target)))))
+    (maphash (lambda (_ buf)
+               (when (buffer-live-p buf)
+                 (with-current-buffer buf
+                   (when (eq opencode--buffer-connection connection)
+                     (opencode--connection-dead-mode target)))))
+             opencode-session-buffers)
+    (force-mode-line-update t)))
 
 (defun opencode--normalize-directory (directory)
   "Return DIRECTORY as a canonical directory name."
@@ -94,13 +176,14 @@ edits, END-LINE is nil."
   '(opencode--indent-files
     opencode--flycheck-edited-files)
   "Run hooks after opencode finishes editing files.
-This is an abnormal hook.  Each entry receives one argument, FILES,
-the list of file paths from a message summary diff.  Hooks that finish
-synchronously can just return.  Hooks that finish asynchronously must
-return `:opencode-async' and call `opencode-hook-finished' when done.
-While a hook is active, it may call `opencode-report-diagnostic' zero
-or more times to queue diagnostic messages; all queued diagnostics are
-sent to the session together after all hooks finish."
+This is an abnormal hook.  Each entry receives two arguments, CONTEXT
+and FILES, the list of file paths from a message summary diff.  Hooks
+that finish synchronously can just return.  Hooks that finish
+asynchronously must return `:opencode-async' and call
+`opencode-hook-finished' with CONTEXT when done.  While a hook is
+active, it may call `opencode-report-diagnostic' with CONTEXT and a
+message to queue diagnostic messages; all queued diagnostics are sent to
+the session together after all hooks finish."
   :type 'hook
   :group 'opencode)
 

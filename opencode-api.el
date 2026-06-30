@@ -11,34 +11,42 @@
 
 ;;; Code:
 
-(require 'opencode-common)
 (require 'plz)
 (require 'json)
 
-(defvar opencode-api-url nil
-  "URL of the opencode server we're connected to.")
+(require 'opencode-common)
+
+(defvar opencode--current-connection)
 
 (defvar opencode-api-log-max-lines nil
   "Maximum number of lines of opencode api requests and responses to log.
 Or nil (default) to turn off logging.")
 
-(defun opencode--auth-header ()
-  "Return auth header based on `opencode-server-username' and `opencode-server-password'."
-  (when opencode-server-password
+(defun opencode--auth-header (connection)
+  "Return auth header for CONNECTION based on its auth-username and auth-password."
+  (when (opencode--connection-auth-password connection)
     (cons "Authorization"
           (concat "Basic "
                   (base64-encode-string
-                   (format "%s:%s" opencode-server-username opencode-server-password))))))
+                   (format "%s:%s"
+                           (opencode--connection-auth-username connection)
+                           (opencode--connection-auth-password connection)))))))
 
 (eval-and-compile
   (cl-defun opencode-api--call (method path return-var body &key data)
     "Generate the body of an opencode api wrapper macro.
 Using METHOD, for endpoint PATH, saving result in RETURN-VAR,
 and saving to CURRENT-BUFFER while running BODY."
-    (cl-with-gensyms (current-buffer result saved-path saved-data)
+    (cl-with-gensyms (current-buffer result saved-path saved-data captured-connection)
       `(let ((,current-buffer (current-buffer))
              (,saved-path ,path)
-             (,saved-data ,data))
+             (,saved-data ,data)
+             (,captured-connection opencode--current-connection))
+         (when (and ,captured-connection
+                    (not (opencode--connection-live-p ,captured-connection)))
+           (user-error "`%s' is not connected; \
+ run M-x opencode-connect to revive or M-x opencode-forget-connection to drop it"
+                       (opencode--format-connection ,captured-connection)))
          (when opencode-api-log-max-lines
            (with-current-buffer (get-buffer-create "*opencode-api-log*")
              (save-excursion
@@ -48,39 +56,43 @@ and saving to CURRENT-BUFFER while running BODY."
                  (insert "REQUEST BODY:")
                  (pp ,saved-data (current-buffer)))
                (opencode--truncate-at-max-lines opencode-api-log-max-lines))))
-         (plz ',method (concat opencode-api-url ,saved-path)
+         (plz ',method (concat (opencode--connection-url opencode--current-connection) ,saved-path)
            :as (lambda () (unless (string-empty-p (buffer-string))
-                       (json-parse-buffer :array-type 'list
-                                          :object-type 'alist)))
+                            (json-parse-buffer :array-type 'list
+                                               :object-type 'alist)))
            :headers `(("Content-Type" . "application/json")
                       ,(cons "x-opencode-directory" (expand-file-name default-directory))
-                      ,(opencode--auth-header))
+                      ,(opencode--auth-header opencode--current-connection))
            ,@(when data
                `(:body (json-encode ,saved-data)))
            :then (lambda (,result)
-                   (when opencode-api-log-max-lines
-                     (with-current-buffer
-                         (get-buffer-create "*opencode-api-log*")
-                       (save-excursion
-                         (goto-char (point-max))
-                         (insert "RESPONSE: ")
-                         (pp ,result (current-buffer)))))
-                   (let ((,return-var ,result))
-                     (if (buffer-live-p ,current-buffer)
-                         (with-current-buffer ,current-buffer
-                           ,@body)
-                       ,@body)))
-           :else (lambda (response)
-                   (let ((error-msg (format "error requesting %s: %s" ,saved-path response)))
+                   (let ((opencode--current-connection ,captured-connection))
                      (when opencode-api-log-max-lines
                        (with-current-buffer
                            (get-buffer-create "*opencode-api-log*")
                          (save-excursion
                            (goto-char (point-max))
-                           (insert "ERROR: " error-msg "\n"))))
-                     (if opencode--event-subscription
-                         (error error-msg)
-                       (error "Not connected to opencode"))))))))
+                           (insert "RESPONSE: ")
+                           (pp ,result (current-buffer)))))
+                     (let ((,return-var ,result))
+                       (if (buffer-live-p ,current-buffer)
+                           (with-current-buffer ,current-buffer
+                             ,@body)
+                         ,@body))))
+           :else (lambda (response)
+                   (let ((opencode--current-connection ,captured-connection))
+                     (let ((error-msg (format "error requesting %s: %s" ,saved-path response)))
+                       (when opencode-api-log-max-lines
+                         (with-current-buffer
+                             (get-buffer-create "*opencode-api-log*")
+                           (save-excursion
+                             (goto-char (point-max))
+                             (insert "ERROR: " error-msg "\n"))))
+                       (if (opencode--connection-live-p opencode--current-connection)
+                           (error error-msg)
+                         (user-error "`%s' is not connected; \
+run M-x opencode-connect to revive or M-x opencode-forget-connection to drop it"
+                                     (opencode--format-connection opencode--current-connection))))))))))
 
   (cl-defun opencode-api--wrap (method path &key elisp-macro-name nodata)
     "Define a macro to wrap api call with METHOD and PATH.

@@ -17,10 +17,11 @@
 
 ;;; Code:
 
-(require 'opencode-api)
-(require 'opencode-common)
-(require 'opencode-sessions)
 (require 'transient)
+
+(require 'opencode-common)
+(require 'opencode-api)
+(require 'opencode-sessions)
 
 ;;; Path utilities
 
@@ -250,11 +251,12 @@ label to the original output line via its saved marker."
         (set-marker marker nil)))
     (when opencode-session-pending-permission
       (run-at-time 0 nil #'opencode-respond-permission))
-    (opencode-api-respond-permission-request (session-id permission-id)
-        `((response . ,choice))
-        response
-      (unless response
-        (user-error "Response to permission request failed")))))
+    (opencode--with-connection (opencode--buffer-connection)
+      (opencode-api-respond-permission-request (session-id permission-id)
+          `((response . ,choice))
+          response
+        (unless response
+          (user-error "Response to permission request failed"))))))
 
 (defun opencode-respond-permission ()
   "Respond to the next pending permission request using a transient popup."

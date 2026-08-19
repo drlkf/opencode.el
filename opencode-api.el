@@ -69,7 +69,7 @@ and saving to CURRENT-BUFFER while running BODY."
                      (if (buffer-live-p ,current-buffer)
                          (with-current-buffer ,current-buffer
                            ,@body)
-                       ,@body)))
+                       (message "Buffer closed so opencode api response handler not run"))))
            :else (lambda (response)
                    (let ((error-msg (format "error requesting %s: %s" ,saved-path response)))
                      (when opencode-api-log-max-lines

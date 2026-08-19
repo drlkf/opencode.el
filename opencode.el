@@ -572,7 +572,8 @@ Also prompts for pending questions or permissions if any."
          (payload (alist-get 'payload data)))
     (if (and directory payload)
         (let ((default-directory (opencode--normalize-directory directory)))
-          (opencode--handle-message payload))
+          (with-current-buffer (process-buffer opencode--event-subscription)
+            (opencode--handle-message payload)))
       (unless (string= "server.heartbeat" (alist-get 'type payload))
         (opencode--log-event "WARNING GLOBAL EVENT" data)))))
 

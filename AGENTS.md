@@ -13,6 +13,8 @@ that code you write is working correctly.
 DO NOT byte-compile to check for warnings. After you are finished you will be
 presented all warnings and errors from emacs' flycheck, including byte compiler
 warnings.
+DO NOT run all tests, they will also be automatically run after you are finished
+and you will be notified if any failed.
 
 DO use emacs_eval_elisp to perform runtime verification that the code you edited
 works as expected.

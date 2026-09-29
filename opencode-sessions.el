@@ -95,6 +95,9 @@
 (defvar-local opencode-session-status "idle"
   "Status of the current opencode session (busy or idle).")
 
+(defvar-local opencode--table-scan-marker nil
+  "Marker at the unprocessed Markdown in the current assistant text part.")
+
 (defvar-local opencode-session-agent nil
   "Currently active agent for this buffer's session.")
 
@@ -790,6 +793,7 @@ Preserve any pending input context while sending STRING as a plain prompt."
       ("assistant"
        (when .time.completed
          (opencode--with-session-buffer .sessionID
+           (opencode--align-finished-tables t)
            (setq opencode-session-tokens
                  (+ .tokens.input .tokens.output .tokens.reasoning
                     .tokens.cache.read .tokens.cache.write))
@@ -819,6 +823,105 @@ Preserve any pending input context while sending STRING as a plain prompt."
     (comint-output-filter (get-buffer-process (current-buffer)) string)
     (opencode--buttonize-file-references
      start (opencode--session-process-position))))
+
+(defun opencode--align-output-table (beg end)
+  "Align the completed Markdown table between BEG and END.
+Use Markdown's table command in an isolated buffer, then apply only its
+text changes so session properties and markers survive on unchanged text."
+  (let ((source (current-buffer))
+        (text (buffer-substring-no-properties beg end))
+        (output-properties
+         (cl-loop for property in '(field read-only insert-in-front-hooks
+                                         inhibit-line-move-field-capture front-sticky)
+                  for value = (get-text-property beg property)
+                  when value append (list property value)))
+        (inhibit-read-only t))
+    (save-excursion
+      (with-temp-buffer
+        ;; Automatic context modes schedule timers which run in whichever
+        ;; buffer is current later, potentially overriding the session's RET.
+        ;; Enable only the table context needed by the alignment command.
+        (let ((markdown-ts-enable-table-mode nil)
+              (markdown-ts-enable-code-block-context-mode nil))
+          (delay-mode-hooks (markdown-ts-mode)))
+        (insert text)
+        (goto-char (point-min))
+        (markdown-ts-in-table-mode 1)
+        (markdown-ts-table-align-table t)
+        ;; The command always adds a newline.  Do not introduce one if the
+        ;; final text part ended at the last cell instead.
+        (unless (string-suffix-p "\n" text)
+          (when (eq (char-before (point-max)) ?\n)
+            (delete-region (1- (point-max)) (point-max))))
+        (let ((aligned (current-buffer)))
+          (with-current-buffer source
+            (save-restriction
+              (narrow-to-region beg end)
+              (replace-buffer-contents aligned)
+              ;; Diff insertion preserves existing cells, but newly inserted
+              ;; padding also needs comint's output field and protection.
+              (when output-properties
+                (let ((pos (point-min)))
+                  (while (< pos (point-max))
+                    (let ((next (next-single-property-change pos 'field nil (point-max))))
+                      (unless (get-text-property pos 'field)
+                        (add-text-properties pos next output-properties))
+                      (setq pos next)))))
+              (opencode--buttonize-file-references (point-min) (point-max)))))))))
+
+(defun opencode--align-finished-tables (&optional finished)
+  "Align tables whose end is confirmed by subsequent complete output lines.
+If FINISHED is non-nil, also align a table at the end of the text part.
+Retain one line of context for headers whose delimiter has yet to arrive."
+  (when opencode--table-scan-marker
+    (save-excursion
+      (save-restriction
+        ;; Pending comint input is not part of the assistant's Markdown.
+        (narrow-to-region (point-min) (opencode--session-process-position))
+        (let* ((inhibit-field-text-motion t)
+               (limit (copy-marker (opencode--session-process-position)))
+               (complete-end
+                (copy-marker
+                 (if finished
+                     limit
+                   (goto-char limit)
+                   (line-beginning-position))))
+               waiting)
+          (unwind-protect
+              (progn
+                (goto-char opencode--table-scan-marker)
+                (while (and (< (point) complete-end) (not waiting))
+                  (let ((node (treesit-node-at (point) 'markdown)))
+                    (while (and node (not (equal (treesit-node-type node) "pipe_table")))
+                      (setq node (treesit-node-parent node)))
+                    ;; At whitespace, `treesit-node-at' can return the table
+                    ;; immediately before point.  Never revisit that table.
+                    (if (and node (< (point) (treesit-node-end node)))
+                        (let ((beg (treesit-node-start node))
+                              (end (treesit-node-end node)))
+                          (if (and (<= end limit)
+                                   (or finished
+                                       (< (save-excursion
+                                            (goto-char end)
+                                            (if (bolp) (point)
+                                              (line-beginning-position 2)))
+                                          complete-end)))
+                              (let ((next (copy-marker end t)))
+                                (unwind-protect
+                                    (progn
+                                      (opencode--align-output-table beg end)
+                                      (goto-char next)
+                                      (set-marker opencode--table-scan-marker next))
+                                  (set-marker next nil)))
+                            (set-marker opencode--table-scan-marker beg)
+                            (setq waiting t)))
+                      (set-marker opencode--table-scan-marker (point))
+                      (forward-line 1))))
+                (when finished
+                  (set-marker opencode--table-scan-marker nil)
+                  (setq opencode--table-scan-marker nil)))
+            (set-marker limit nil)
+            (set-marker complete-end nil)))))))
 
 (defun opencode-insert-logo ()
   "Insert the opencode logo."
@@ -871,12 +974,16 @@ PART-ID is id of PART"
                      new-block-p)
             (setf delta (string-trim-left delta)))
           (when (and current-type new-block-p)
+            (opencode--align-finished-tables t)
             (when (and (eq current-type 'text)
                        (not (eq last-type 'text)))
               (setf opencode-last-response-start
                     (opencode--session-process-position)))
             (when last-type
               (opencode--maybe-insert-block-spacing))
+            (when (eq current-type 'text)
+              (setq opencode--table-scan-marker
+                    (copy-marker (opencode--session-process-position))))
             (setf (cdr message-parts) (cons current-type part-id)))
           (pcase type
             ((and "reasoning" (guard delta))
@@ -896,7 +1003,10 @@ PART-ID is id of PART"
              (opencode--maybe-insert-tool-output part))
             ("step-finish"
              (when (string= "stop" .reason)
-               (opencode--maybe-insert-block-spacing)))))))))
+               (opencode--maybe-insert-block-spacing))))
+          (when (and (equal type "text")
+                     (or .time.end (and delta (string-search "\n" delta))))
+            (opencode--align-finished-tables .time.end)))))))
 
 (defface opencode-request-margin-highlight
   '((t :inherit outline-1 :height reset))
@@ -1050,10 +1160,13 @@ PART-ID is id of PART"
                        (unless (string-empty-p text)
                          (pcase .type
                            ("text"
-                            (unless (equal last-part-type "text")
-                              (setf opencode-last-response-start
-                                    (opencode--session-process-position)))
-                            (opencode--output text))
+                             (unless (equal last-part-type "text")
+                               (setf opencode-last-response-start
+                                     (opencode--session-process-position)))
+                             (setq opencode--table-scan-marker
+                                   (copy-marker (opencode--session-process-position)))
+                             (opencode--output text)
+                             (opencode--align-finished-tables t))
                            ("reasoning"
                             (opencode--insert-reasoning-block
                              text)))

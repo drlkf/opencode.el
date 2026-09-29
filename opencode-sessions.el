@@ -502,7 +502,7 @@ in webchat."
     ;; if called from session control buffer, don't kill buffer
     ;; but if called from a session buffer then kill this buffer
     (unless session
-      (kill-this-buffer))))
+      (kill-buffer (current-buffer)))))
 
 (defun opencode--highlight-input (&optional _proc _string)
   "Highlight last prompt input."

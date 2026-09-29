@@ -148,22 +148,20 @@ Requests are processed FIFO.")
 (defun opencode-cycle-session-agent ()
   "Switch to the next agent in `opencode-session-agents'."
   (interactive)
-  (let* ((agent-name (alist-get 'name opencode-session-agent))
-         (agent-cell (and agent-name
-                          (cl-loop for cell on opencode-session-agents
-                                   when (string= agent-name
-                                                 (alist-get 'name (car cell)))
-                                   return cell))))
-    (when agent-cell
-      (setcar agent-cell opencode-session-agent)))
-  (let* ((pos (cl-position-if (lambda (agent)
-                                (string= (alist-get 'name agent)
-                                         (alist-get 'name opencode-session-agent)))
-                              opencode-session-agents))
-         (next (nth (1+ pos) opencode-session-agents)))
-    (setf opencode-session-agent (or next (car opencode-session-agents)))
-    (unless (string= "primary" (alist-get 'mode opencode-session-agent))
-      (opencode-cycle-session-agent)))
+  (let* ((name (alist-get 'name opencode-session-agent))
+         (agents opencode-session-agents)
+         (pos (and name (cl-position-if
+                         (lambda (agent)
+                           (string= name (alist-get 'name agent)))
+                         agents))))
+    (when pos
+      (setcar (nthcdr pos agents) opencode-session-agent)
+      (when-let ((next (seq-find
+                        (lambda (agent)
+                          (string= "primary" (alist-get 'mode agent)))
+                        (append (nthcdr (1+ pos) agents)
+                                (seq-take agents (1+ pos))))))
+        (setq opencode-session-agent next))))
   (force-mode-line-update))
 
 (defun opencode--session-buffer-p (buf)
@@ -454,22 +452,14 @@ Isolate conventional code-block fontification from session properties."
 (defun opencode-yank-code-block ()
   "Yank the code inside the markdown code block under point."
   (interactive)
-  (let ((node (treesit-node-at (point) 'markdown)))
-    (while (and node (not (equal (treesit-node-type node) "fenced_code_block")))
-      (setq node (treesit-node-parent node)))
+  (let* ((node (treesit-parent-until (treesit-node-at (point) 'markdown)
+                                     "fenced_code_block" t))
+         (content (and node (treesit-search-subtree node "code_fence_content"))))
     (unless node
       (user-error "Not in a fenced code block"))
-    (let ((child-index 0)
-          content)
-      (while (and (< child-index (treesit-node-child-count node))
-                  (not content))
-        (let ((child (treesit-node-child node child-index)))
-          (when (equal (treesit-node-type child) "code_fence_content")
-            (setq content child)))
-        (setq child-index (1+ child-index)))
-      (if content
-          (copy-region-as-kill (treesit-node-start content) (treesit-node-end content))
-        (kill-new "")))))
+    (if content
+        (copy-region-as-kill (treesit-node-start content) (treesit-node-end content))
+      (kill-new ""))))
 
 (defun opencode-copy-conversation ()
   "Copy the current conversation as a Markdown transcript.
@@ -575,8 +565,7 @@ Assign the overlay EXTRA-PROP with EXTRA-VALUE."
 
 (defun opencode--image-extension (mime)
   "Return a file extension for image MIME."
-  (or (car (split-string (or (cadr (split-string mime "/")) "")
-                         "[;+]" t))
+  (or (cadr (split-string mime "[/;+]" t))
       "img"))
 
 (defun opencode--yank-image (type data)
@@ -809,9 +798,8 @@ Preserve any pending input context while sending STRING as a plain prompt."
     (opencode--output
      (cond
       ((not (eq ?\n (char-before pos))) "\n\n")
-      ((and (eq ?\n (char-before pos))
-            (not (eq ?\n (char-before (1- pos)))))
-       "\n")
+      ((eq ?\n (char-before pos))
+       (if (eq ?\n (char-before (1- pos))) "" "\n"))
       (t "")))))
 
 (defun opencode--output (string)
@@ -929,12 +917,11 @@ Retain one line of context for headers whose delimiter has yet to arrive."
                      "█░░█ █░░█ █▀▀▀ █░░█" "▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀  ▀"))
         (logo-right '("             ▄     " "█▀▀▀ █▀▀█ █▀▀█ █▀▀█"
                       "█░░░ █░░█ █░░█ █▀▀▀" "▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀")))
-    (cl-loop for line in logo-left
-             for index from 0
-             do
-             (opencode--output (propertize line 'face 'shadow))
+    (cl-loop for left in logo-left
+             for right in logo-right
+             do (opencode--output (propertize left 'face 'shadow))
              (opencode--output " ")
-             (opencode--output (propertize (nth index logo-right) 'face 'bold))
+             (opencode--output (propertize right 'face 'bold))
              (opencode--output "\n"))
     (opencode--output "\n")))
 
@@ -1023,17 +1010,12 @@ PART-ID is id of PART"
   "OpenCode margin face to apply to tool call blocks."
   :group 'opencode-faces)
 
-(defun opencode--margin (face)
-  "Return margin string for FACE."
-  (propertize ">" 'display
-              `((margin left-margin)
-                ,(propertize "▎" 'face
-                             face))))
-
 (defun opencode--add-margin (start end face)
   "Display margin from START (inclusive) to END (exclusive) with FACE."
   (let ((ov (make-overlay start (1- end)))
-        (margin (opencode--margin face)))
+        (margin (propertize ">" 'display
+                            `((margin left-margin)
+                              ,(propertize "▎" 'face face)))))
     (overlay-put ov 'line-prefix margin)
     (overlay-put ov 'wrap-prefix margin)))
 

@@ -40,18 +40,20 @@ BODY is evaluated inside `(let-alist tool-args ...)'."
 
 (opencode-define-tool-formatter "edit"
     (concat "edit " .filePath ":\n"
-            (opencode--format-edit-diff .oldString .newString)))
+            (opencode--fenced-block
+             (opencode--format-edit-diff .oldString .newString) "diff")))
 
 (opencode-define-tool-formatter "apply_patch"
     (concat "apply_patch:\n"
-            (opencode--format-apply-patch .patchText)))
+            (opencode--fenced-block
+             (opencode--format-apply-patch .patchText) "diff")))
 
 (opencode-define-tool-formatter "write"
     (format "write %s" .filePath))
 
 (opencode-define-tool-formatter "read"
     (if (and .offset .limit)
-        (format "read %s [offset=%d, limit=%d]"
+        (format "read `%s:%d` limit=%d"
                 .filePath .offset .limit)
       (format "read %s" .filePath)))
 
@@ -80,7 +82,7 @@ BODY is evaluated inside `(let-alist tool-args ...)'."
       (format "glob \"%s\"" .pattern)))
 
 (opencode-define-tool-formatter "todowrite"
-    (opencode--render-todos .todos))
+    (opencode--format-todos .todos))
 
 (opencode-define-tool-formatter "question"
     (opencode--format-questions .questions))
@@ -113,30 +115,33 @@ BODY is evaluated inside `(let-alist tool-args ...)'."
                          ", ")
               "]"))))
 
-(defun opencode--render-todos (todos)
-  "Render TODOS as markdown todo list."
-  (opencode--render-markdown
-   (mapconcat
-    (lambda (todo)
-      (let-alist todo
-        (format "%s %s"
-                (pcase .status
-                  ("pending" "📌")
-                  ("in_progress" "▶")
-                  ("completed" "✅")
-                  ("cancelled" "❌")
-                  (_ " "))
-                .content)))
-    todos
-    "\n")))
+(defun opencode--format-todos (todos)
+  "Return TODOS as a markdown todo list."
+  (mapconcat
+   (lambda (todo)
+     (let-alist todo
+       (format "%s %s"
+               (pcase .status
+                 ("pending" "📌")
+                 ("in_progress" "▶")
+                 ("completed" "✅")
+                 ("cancelled" "❌")
+                 (_ " "))
+               .content)))
+   todos
+   "\n"))
 
-(defun opencode--fontify-diff-string (diff-string)
-  "Return DIFF-STRING with `diff-mode' faces applied."
-  (with-temp-buffer
-    (insert diff-string)
-    (delay-mode-hooks (diff-mode))
-    (font-lock-ensure)
-    (buffer-string)))
+(defun opencode--fenced-block (text language)
+  "Return TEXT in a LANGUAGE fence longer than any backtick run in TEXT."
+  (let ((length 3)
+        (start 0))
+    (while (string-match "`+" text start)
+      (setq length (max length (1+ (- (match-end 0) (match-beginning 0))))
+            start (match-end 0)))
+    (let ((fence (make-string length ?`)))
+      (concat fence language "\n" text
+              (unless (string-suffix-p "\n" text) "\n")
+              fence))))
 
 (defun opencode--format-edit-diff (old-string new-string)
   "Generate diff output comparing OLD-STRING to NEW-STRING."
@@ -161,54 +166,53 @@ BODY is evaluated inside `(let-alist tool-args ...)'."
               (forward-line -2)
               (delete-region (point) (point-max))
               ;; Return the diff content
-              (opencode--fontify-diff-string (buffer-string)))))))))
+              (buffer-string))))))))
 
 (defun opencode--format-apply-patch (patch-text)
   "Return PATCH-TEXT formatted for `apply_patch' display."
-  (opencode--fontify-diff-string
-   (with-temp-buffer
-     (insert patch-text)
-     (goto-char (point-min))
-     (while (re-search-forward "^\\*\\*\\* \\(?:Begin\\|End\\) Patch\\n?" nil t)
-       (replace-match "" t t))
-     (goto-char (point-min))
-      (while (not (eobp))
-        (cond
-        ((looking-at opencode--apply-patch-file-header-regexp)
-         (let ((beg (match-beginning 0))
-               (end (match-end 0))
-               (operation (match-string 1))
-               (file (match-string 2)))
-           (delete-region beg end)
-           (goto-char beg)
-           (insert (format "*** %s: %s"
-                           operation
-                           (opencode--relative-path-for-display file)))))
-        ((looking-at "\\*\\*\\* Move to: \\(.*\\)$")
-         (let ((beg (match-beginning 0))
-               (end (match-end 0))
-               (file (match-string 1)))
-           (delete-region beg end)
-           (goto-char beg)
-           (insert (format "*** Move to: %s"
-                           (opencode--relative-path-for-display file)))))
-        ((looking-at "@@\\(.*\\)$")
-         (let ((beg (match-beginning 0))
-               (end (match-end 0))
-               (suffix (match-string 1)))
-           (unless (save-match-data
-                     (string-match-p "\\` -[0-9,]+ \\+[0-9,]+ @@" suffix))
-              (delete-region beg end)
-              (goto-char beg)
-              (insert (format "@@ -0 +0 @@%s" suffix))))))
-        (forward-line 1))
-      (goto-char (point-min))
-      (skip-chars-forward "\n")
-      (delete-region (point-min) (point))
-      (goto-char (point-max))
-      (skip-chars-backward "\n")
-      (delete-region (point) (point-max))
-      (buffer-string))))
+  (with-temp-buffer
+    (insert patch-text)
+    (goto-char (point-min))
+    (while (re-search-forward "^\\*\\*\\* \\(?:Begin\\|End\\) Patch\\n?" nil t)
+      (replace-match "" t t))
+    (goto-char (point-min))
+    (while (not (eobp))
+      (cond
+       ((looking-at opencode--apply-patch-file-header-regexp)
+        (let ((beg (match-beginning 0))
+              (end (match-end 0))
+              (operation (match-string 1))
+              (file (match-string 2)))
+          (delete-region beg end)
+          (goto-char beg)
+          (insert (format "*** %s: %s"
+                          operation
+                          (opencode--relative-path-for-display file)))))
+       ((looking-at "\\*\\*\\* Move to: \\(.*\\)$")
+        (let ((beg (match-beginning 0))
+              (end (match-end 0))
+              (file (match-string 1)))
+          (delete-region beg end)
+          (goto-char beg)
+          (insert (format "*** Move to: %s"
+                          (opencode--relative-path-for-display file)))))
+       ((looking-at "@@\\(.*\\)$")
+        (let ((beg (match-beginning 0))
+              (end (match-end 0))
+              (suffix (match-string 1)))
+          (unless (save-match-data
+                    (string-match-p "\\` -[0-9,]+ \\+[0-9,]+ @@" suffix))
+            (delete-region beg end)
+            (goto-char beg)
+            (insert (format "@@ -0 +0 @@%s" suffix))))))
+      (forward-line 1))
+    (goto-char (point-min))
+    (skip-chars-forward "\n")
+    (delete-region (point-min) (point))
+    (goto-char (point-max))
+    (skip-chars-backward "\n")
+    (delete-region (point) (point-max))
+    (buffer-string)))
 
 (provide 'opencode-format-tool-calls)
 ;;; opencode-format-tool-calls.el ends here

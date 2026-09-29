@@ -10,7 +10,7 @@ of advantages over the official TUI:
    Emacs is a mature TUI and GUI framework, that while janky in its own way, is
    far less janky than the TUIs the new agentic coding tools have written from
    scratch. This package builds on a solid foundation of [[https://www.emacswiki.org/emacs/ComintMode][comint]], [[https://www.gnu.org/software/emacs/manual/html_mono/vtable.html][vtable]],
-   [[https://www.gnu.org/software/emacs/manual/html_node/emacs/Diff-Mode.html][diff-mode]], [[https://jblevins.org/projects/markdown-mode/][markdown-mode]], emacs' completion system, and more, to offer a
+   [[https://www.gnu.org/software/emacs/manual/html_node/emacs/Diff-Mode.html][diff-mode]], =markdown-ts-mode=, emacs' completion system, and more, to offer a
    (IMO) nicer UI. Also if you're an emacs user, the UI is more consistent: goto
    next or previous prompt, =comint-kill-output-to-kill-ring=, and everything else
    works the same as in any other repl or shell based on comint mode, completion
@@ -41,7 +41,7 @@ of advantages over the official TUI:
      =safe-local-variable-directories= and then create a =.dir-locals.el= in the
      project directory with:
      #+begin_src elisp
-((nil . ((opencode-project-files-finished-editing-functions . (opencode-uv-pytest))))))
+((nil . ((opencode-project-files-finished-editing-functions . (opencode-uv-pytest)))))
      #+end_src
    - add any emacs buffer to chat context with =opencode-add-buffer-dwim=
    - add files from dired to context with =opencode-add-file-dwim=
@@ -65,8 +65,10 @@ isn't focused, reverting edits, and forking the session.
 
 * Installation
 When this package is a bit more stable I'll package it on MELPA, for now install
-from git. This package depends on [[https://github.com/magit/magit][magit]], [[https://github.com/alphapapa/plz.el][plz]], [[https://github.com/r0man/plz-media-type][plz-media-type]], [[https://github.com/r0man/plz-event-source/][plz-event-source]],
-and [[https://jblevins.org/projects/markdown-mode/][markdown-mode]].
+from git. This package requires Emacs 31.1 with the =markdown= and
+=markdown-inline= Tree-sitter grammars (install with
+=M-x markdown-ts-mode-install-parsers=), plus [[https://github.com/magit/magit][magit]], [[https://github.com/alphapapa/plz.el][plz]], [[https://github.com/r0man/plz-media-type][plz-media-type]],
+and a bugfix branch of [[https://github.com/sczi/plz-event-source/tree/long-lines-fix][plz-event-source]].
 ** Manual
 
 Clone this repository and add it to your load path.
@@ -80,7 +82,7 @@ Clone this repository and add it to your load path.
 (use-package opencode
   :straight (opencode :type git :host codeberg :repo "sczi/opencode.el"))
 #+end_src
-** Emacs use-package (as of Emacs 30+)
+** Emacs use-package
 #+begin_src emacs-lisp
 (use-package opencode 
   :vc (:url "https://codeberg.org/sczi/opencode.el.git" :rev :newest))

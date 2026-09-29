@@ -14,7 +14,6 @@
 (require 'button)
 (require 'cl-lib)
 (require 'map)
-(require 'markdown-mode)
 (require 'notifications)
 (require 'opencode-flycheck)
 (require 'project)
@@ -251,9 +250,9 @@ the optional fourth element is a number to sort by."
     (forward-line (1- line))
     (recenter)))
 
-(defun opencode--buttonize-file-references (string)
-  "Return STRING with backticked file references turned into buttons."
-  (let ((start 0)
+(defun opencode--buttonize-file-references (start end)
+  "Turn backticked file references between START and END into buttons."
+  (let ((inhibit-read-only t)
         (regexp
          (rx "`"
              (group (any alnum "._~/")
@@ -261,42 +260,28 @@ the optional fourth element is a number to sort by."
              (optional ":"
                        (group (+ digit))
                        (optional "-" (+ digit)))
-             "`"))
-        parts)
-    (while (string-match regexp string start)
-      (let* ((match-beg (match-beginning 0))
-             (match-end (match-end 0))
-             (file (match-string 1 string))
-             (line-string (match-string 2 string))
-             (line (if line-string
-                       (string-to-number line-string)
-                     1))
-             (path (opencode--resolve-file-reference file)))
-        (push (substring string start match-beg) parts)
-        (push (if path
-                  (make-text-button
-                   (substring string match-beg match-end)
-                   nil
-                   'action #'opencode--visit-file-location
-                   'button-data (cons path line)
-                   'follow-link t
-                   'help-echo (if line-string
-                                  (format "Open %s:%d in another window" file line)
-                                (format "Open %s in another window" file))
-                   'mouse-face 'highlight)
-                (substring string match-beg match-end))
-              parts)
-        (setq start match-end)))
-    (push (substring string start) parts)
-    (apply #'concat (nreverse parts))))
-
-(defun opencode--render-markdown (string)
-  "Render STRING in `gfm-view-mode'."
-  (with-temp-buffer
-    (insert string)
-    (delay-mode-hooks (gfm-view-mode))
-    (font-lock-ensure)
-    (buffer-string)))
+             "`")))
+    (save-excursion
+      (goto-char start)
+      (while (re-search-forward regexp end t)
+        (let* ((match-beg (match-beginning 0))
+               (match-end (match-end 0))
+               (file (match-string-no-properties 1))
+               (line-string (match-string-no-properties 2))
+               (line (if line-string
+                         (string-to-number line-string)
+                       1))
+               (path (opencode--resolve-file-reference file)))
+          (when (and path (not (button-at match-beg)))
+            (make-text-button
+             match-beg match-end
+             'action #'opencode--visit-file-location
+             'button-data (cons path line)
+             'follow-link t
+             'help-echo (if line-string
+                            (format "Open %s:%d in another window" file line)
+                          (format "Open %s in another window" file))
+             'mouse-face 'highlight)))))))
 
 (defun opencode--default-toast-show (properties)
   "Default notifier to show notification with PROPERTIES from opencode."

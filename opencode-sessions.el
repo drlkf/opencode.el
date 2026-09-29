@@ -14,7 +14,7 @@
 (require 'comint)
 (require 'magit)
 (require 'mailcap)
-(require 'markdown-mode)
+(require 'markdown-ts-mode)
 (require 'opencode-api)
 (require 'opencode-common)
 (require 'opencode-convert)
@@ -132,8 +132,7 @@ Requests are processed FIFO.")
 
 (defvar opencode-assistant-messages
   nil
-  "An alist mapping currently updating assistant message ids to render state.
-\(id type part-id)")
+  "An alist mapping updating assistant message ids to (type . part-id).")
 
 (defmacro opencode--with-session-buffer (session-id &rest body)
   "Run BODY in the live session buffer for SESSION-ID."
@@ -390,26 +389,84 @@ Each element is (display-name . (provider-id provider-name model-id))."
     (prog1 opencode--skip-files-finished-editing-hook-on-next-idle
       (setq opencode--skip-files-finished-editing-hook-on-next-idle nil))))
 
+(defun opencode--fontify-code-block (mode beg end)
+  "Collect MODE faces for BEG..END without sharing session text properties."
+  (let ((text (buffer-substring-no-properties beg end))
+        faces)
+    (with-temp-buffer
+      (insert text)
+      (delay-mode-hooks (funcall mode))
+      (font-lock-ensure)
+      (let ((pos (point-min)))
+        (while (< pos (point-max))
+          (let ((next (next-single-property-change pos 'face nil (point-max)))
+                (face (get-text-property pos 'face)))
+            (when face
+              (push (list (+ beg (1- pos)) (+ beg (1- next)) face) faces))
+            (setq pos next)))))
+    (nreverse faces)))
+
+(defun opencode--fontify-markdown (start end &optional loudly)
+  "Fontify Markdown between START and END, optionally LOUDLY.
+Isolate conventional code-block fontification from session properties."
+  (let ((collect (symbol-function 'markdown-ts--fontify-non-ts-collect-faces)))
+    (cl-letf (((symbol-function 'markdown-ts--fontify-non-ts-collect-faces)
+               (lambda (mode beg finish)
+                 (if (memq mode markdown-ts-code-block-force-conventional-modes)
+                     (funcall collect mode beg finish)
+                   (opencode--fontify-code-block mode beg finish)))))
+      (treesit-font-lock-fontify-region start end loudly))))
+
 (define-derived-mode opencode-session-mode comint-mode "OpenCode"
   "Major mode for interacting with an opencode session."
   (setq-local comint-use-prompt-regexp nil
               comint-input-sender 'opencode--send-input
               comint-highlight-input nil
               left-margin-width (1+ left-margin-width))
+  (setq-local markdown-ts-hide-markup t
+              markdown-ts-enable-code-block-context-mode nil
+              markdown-ts-enable-table-mode nil)
+  ;; Set up Markdown's parser and font-lock without replacing comint as the
+  ;; major mode (and losing its process, prompt, and input handling).
+  (unless (and (treesit-language-available-p 'markdown)
+               (treesit-language-available-p 'markdown-inline))
+    (error "OpenCode sessions require the markdown and markdown-inline Tree-sitter grammars"))
+  (markdown-ts-mode--initialize)
+  ;; Markdown's conventional-mode helper uses an indirect buffer sharing all
+  ;; session properties.  Mode initialization/cleanup there can interfere with
+  ;; already-fontified Markdown.  Collect code faces in an isolated buffer.
+  (setq-local font-lock-defaults
+              '(nil nil nil nil
+                    (font-lock-fontify-syntactically-function
+                     . opencode--fontify-markdown)))
+  (setq-local font-lock-fontify-syntactically-function #'opencode--fontify-markdown)
+  ;; File-reference buttons are created by comint output, not font-lock.
+  (setq-local font-lock-extra-managed-props
+              (cl-set-difference font-lock-extra-managed-props
+                                 '(button category action help-echo)))
   (visual-line-mode)
-  (font-lock-mode -1)
   (cursor-intangible-mode)
-  (yank-media-handler "\\`image/" #'opencode--yank-image)
-  (add-hook 'comint-input-filter-functions 'opencode--render-input-markdown nil t))
+  (yank-media-handler "\\`image/" #'opencode--yank-image))
 
 (defun opencode-yank-code-block ()
-  "Yank the markdown code block under point."
+  "Yank the code inside the markdown code block under point."
   (interactive)
-  (save-excursion
-    (markdown-backward-block)
-    (copy-region-as-kill (point)
-                         (progn (markdown-forward-block)
-                                (point)))))
+  (let ((node (treesit-node-at (point) 'markdown)))
+    (while (and node (not (equal (treesit-node-type node) "fenced_code_block")))
+      (setq node (treesit-node-parent node)))
+    (unless node
+      (user-error "Not in a fenced code block"))
+    (let ((child-index 0)
+          content)
+      (while (and (< child-index (treesit-node-child-count node))
+                  (not content))
+        (let ((child (treesit-node-child node child-index)))
+          (when (equal (treesit-node-type child) "code_fence_content")
+            (setq content child)))
+        (setq child-index (1+ child-index)))
+      (if content
+          (copy-region-as-kill (treesit-node-start content) (treesit-node-end content))
+        (kill-new "")))))
 
 (defun opencode-copy-conversation ()
   "Copy the current conversation as a Markdown transcript.
@@ -495,7 +552,7 @@ Assign the overlay EXTRA-PROP with EXTRA-VALUE."
          (ov (make-overlay start end)))
     (overlay-put ov 'opencode-label t)
     (overlay-put ov extra-prop extra-value)
-    (overlay-put ov 'display (propertize name 'face 'markdown-inline-code-face))
+    (overlay-put ov 'display (propertize name 'face 'markdown-ts-code))
     (overlay-put ov 'modification-hooks '(opencode--remove-label))
     ov))
 
@@ -742,43 +799,6 @@ Preserve any pending input context while sending STRING as a plain prompt."
                  (assoc-delete-all .id opencode-assistant-messages))
          (push (cons .id nil) opencode-assistant-messages))))))
 
-(defun opencode--render-region (type start &optional end)
-  "Render TYPE markdown from START to END.
-END defaults to the process mark."
-  (setq end (or end (opencode--session-process-position)))
-  (when (and (seq-contains-p '(reasoning text) type)
-             (< start end))
-    ;; `delete-region' relocates points inside the deleted text to START.
-    ;; Treat points in the rendered range as following output instead.
-    (let* ((inhibit-read-only t)
-           (follow-output (<= start (point) end))
-           (follow-windows
-            (seq-filter (lambda (window)
-                          (<= start (window-point window) end))
-                        (get-buffer-window-list (current-buffer) nil t)))
-           (text (buffer-substring-no-properties start end)))
-      (save-excursion
-        (ignore-errors
-          (setf text (opencode--render-markdown text)))
-        (delete-region start end)
-        (cl-case type
-          (reasoning (opencode--insert-reasoning-block text))
-          (text (opencode--output text))))
-      (let ((new-end (opencode--session-process-position)))
-        (dolist (window follow-windows)
-          (when (and (window-live-p window)
-                     (eq (window-buffer window) (current-buffer)))
-            (set-window-point window new-end)))
-        (when follow-output
-          (goto-char new-end))))))
-
-(defun opencode--stream-line-start ()
-  "Return the current line start at process mark."
-  (save-excursion
-    (goto-char (opencode--session-process-position))
-    (let ((inhibit-field-text-motion t))
-      (line-beginning-position))))
-
 (defun opencode--maybe-insert-block-spacing ()
   "Ensure \n\n before block."
   (let ((pos (opencode--session-process-position)))
@@ -792,8 +812,13 @@ END defaults to the process mark."
 
 (defun opencode--output (string)
   "Output STRING as comint output."
-  (comint-output-filter (get-buffer-process (current-buffer))
-                        (opencode--buttonize-file-references string)))
+  (let ((start (save-excursion
+                 (goto-char (opencode--session-process-position))
+                 (let ((inhibit-field-text-motion t))
+                   (line-beginning-position)))))
+    (comint-output-filter (get-buffer-process (current-buffer)) string)
+    (opencode--buttonize-file-references
+     start (opencode--session-process-position))))
 
 (defun opencode-insert-logo ()
   "Insert the opencode logo."
@@ -812,7 +837,10 @@ END defaults to the process mark."
 
 (defun opencode--show-prompt ()
   "Highlight the prompt after displaying output."
-  (opencode--output (propertize "> " 'invisible t))
+  (let ((start (opencode--session-process-position)))
+    (opencode--output "> ")
+    (let ((ov (make-overlay start (opencode--session-process-position))))
+      (overlay-put ov 'invisible t)))
   (opencode--add-margin (car comint-last-prompt)
                         (cdr comint-last-prompt)
                         'opencode-request-margin-highlight))
@@ -828,12 +856,9 @@ PART-ID is id of PART"
       (when (string-empty-p .text)
         (puthash part-id type opencode-part-type)))
     (opencode--with-session-buffer .sessionID
-      (when-let ((process (get-buffer-process (current-buffer)))
-                 (message-parts (assoc-string .messageID opencode-assistant-messages)))
-        (let* ((last-state (cdr message-parts))
-               (last-type (car last-state))
-               (last-part-id (cadr last-state))
-               (last-start (cddr last-state))
+      (when-let ((message-parts (assoc-string .messageID opencode-assistant-messages)))
+        (let* ((last-type (cadr message-parts))
+               (last-part-id (cddr message-parts))
                (current-type (pcase type
                                ("reasoning" 'reasoning)
                                ("text" 'text)
@@ -850,22 +875,14 @@ PART-ID is id of PART"
                        (not (eq last-type 'text)))
               (setf opencode-last-response-start
                     (opencode--session-process-position)))
-            (when last-start
-              (opencode--render-region last-type last-start)
+            (when last-type
               (opencode--maybe-insert-block-spacing))
-            (setf (cdr message-parts)
-                  (cons current-type
-                        (cons part-id
-                              (marker-position (process-mark process))))))
+            (setf (cdr message-parts) (cons current-type part-id)))
           (pcase type
             ((and "reasoning" (guard delta))
-             (let ((start (opencode--stream-line-start)))
-               (opencode--insert-reasoning-block delta)
-               (opencode--render-region 'reasoning start)))
+             (opencode--insert-reasoning-block delta))
             ((and "text" (guard delta))
-             (let ((start (opencode--stream-line-start)))
-               (opencode--output delta)
-               (opencode--render-region 'text start)))
+             (opencode--output delta))
             ("tool"
              (when (and
                     ;; only when it first starts running
@@ -879,7 +896,6 @@ PART-ID is id of PART"
              (opencode--maybe-insert-tool-output part))
             ("step-finish"
              (when (string= "stop" .reason)
-               (opencode--render-region last-type last-start)
                (opencode--maybe-insert-block-spacing)))))))))
 
 (defface opencode-request-margin-highlight
@@ -911,13 +927,6 @@ PART-ID is id of PART"
     (overlay-put ov 'line-prefix margin)
     (overlay-put ov 'wrap-prefix margin)))
 
-(defun opencode--render-input-markdown (input)
-  "Rerender comint INPUT as markdown."
-  (let ((inhibit-read-only t))
-    (delete-region (opencode--session-process-position)
-                   (point))
-    (insert (opencode--render-markdown input))))
-
 (defun opencode--replay-user-request (message)
   "Replay a user request MESSAGE."
   (opencode--show-prompt)
@@ -946,28 +955,20 @@ PART-ID is id of PART"
       (opencode--add-margin beginning (save-excursion
                                         (goto-char (opencode--session-process-position))
                                         (skip-chars-backward "\r\n[:blank:]")
+                                        ;; Markdown hides closing fences, so
+                                        ;; their otherwise visible margin would
+                                        ;; appear as an extra highlighted line.
+                                        (let ((inhibit-field-text-motion t))
+                                          (beginning-of-line))
+                                        (unless (looking-at-p "[`~]\\{3,\\}[[:blank:]]*$")
+                                          (goto-char (opencode--session-process-position))
+                                          (skip-chars-backward "\r\n[:blank:]"))
                                         (point))
                             face))))
 
 (defun opencode--insert-reasoning-block (text)
   "Insert TEXT as reasoning block."
   (opencode--insert-block-with-margin text 'opencode-reasoning-margin-highlight))
-
-(defun opencode--refine-diff-hunks (start)
-  "Refine all diff hunks between START and process marker."
-  (let ((inhibit-read-only t))
-    (save-excursion
-      (goto-char (opencode--session-process-position))
-      (condition-case nil
-          (while (>= (point) start)
-            (diff-refine-hunk)
-            (diff-hunk-prev)
-            ;; Hide the diff hunk headers
-            (add-text-properties (line-beginning-position)
-                                 (min (point-max)
-                                      (1+ (line-end-position)))
-                                 '(invisible t)))
-        (error nil)))))
 
 (defun opencode--session-process-position ()
   "Return position of process marker."
@@ -976,6 +977,30 @@ PART-ID is id of PART"
     (get-buffer-process
      (current-buffer)))))
 
+(defun opencode--refine-diff-hunks (start)
+  "Refine and hide diff hunk headers from START to the process marker."
+  (let ((inhibit-read-only t)
+        (inhibit-field-text-motion t))
+    (save-excursion
+      (save-restriction
+        (narrow-to-region start (opencode--session-process-position))
+        (goto-char (point-min))
+        (while (re-search-forward diff-hunk-header-re nil t)
+          (let* ((beg (match-beginning 0))
+                 (header-end (line-beginning-position 2))
+                 (end (progn
+                        (goto-char beg)
+                        ;; apply_patch headers have synthetic line counts.
+                        (diff-end-of-hunk nil t)
+                        (point))))
+            (when diff-refine
+              (diff--refine-hunk beg end t))
+            ;; Font-lock can clear invisible text properties on refontification.
+            (let ((overlay (make-overlay beg header-end)))
+              (overlay-put overlay 'invisible t)
+              (overlay-put overlay 'evaporate t))
+            (goto-char (max header-end end))))))))
+
 (defun opencode--insert-tool-block (tool input)
   "Insert TOOL call with INPUT as margin-highlighted block."
   (let ((start (opencode--session-process-position)))
@@ -983,7 +1008,6 @@ PART-ID is id of PART"
      (opencode--format-tool-call tool input)
      'opencode-tool-margin-highlight)
     (opencode--maybe-insert-block-spacing)
-    ;; For diff-like tools, apply diff hunk refinement after insertion.
     (when (member tool '("edit" "apply_patch"))
       (opencode--refine-diff-hunks start))))
 
@@ -996,7 +1020,7 @@ PART-ID is id of PART"
                    (and (string= .tool "bash")
                         (not .state.input.description)))
                .state.output)
-      (opencode--output .state.output)
+      (opencode--output (opencode--fenced-block .state.output "text"))
       (opencode--output "\n"))))
 
 (defun opencode-open-session-same-window (session)
@@ -1022,7 +1046,7 @@ PART-ID is id of PART"
                        (opencode--insert-tool-block .tool .state.input)
                        (opencode--maybe-insert-tool-output message))
                    (when .text
-                     (let ((text (opencode--render-markdown (string-trim .text))))
+                     (let ((text (string-trim .text)))
                        (unless (string-empty-p text)
                          (pcase .type
                            ("text"

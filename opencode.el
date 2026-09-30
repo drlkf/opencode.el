@@ -260,20 +260,25 @@ Or nil to disable logging.")
                         event))
         (opencode--truncate-at-max-lines opencode-event-log-max-lines)))))
 
-(defun opencode--run-file-edited-hook (tool state)
-  "Run `opencode-file-edited-functions' for completed TOOL with STATE."
-  (let-alist state
-    (dolist (file-ranges (pcase tool
-                           ("write"
-                            (when .input.filePath
-                              (list (cons .input.filePath nil))))
-                           ((or "edit" "apply_patch")
-                            (unless .metadata.diff
-                              (error "Missing diff metadata for %s tool" tool))
-                            (opencode-diff->source-line-ranges .metadata.diff))))
-      (run-hook-with-args 'opencode-file-edited-functions
-                          (car file-ranges)
-                          (cdr file-ranges)))))
+(defun opencode--maybe-run-file-edited-hook (part)
+  "Record edited files and run per-file hooks if PART completed a file edit."
+  (let-alist part
+    (when (and (equal .type "tool")
+               (equal .state.status "completed"))
+      (dolist (file-ranges
+               (pcase .tool
+                 ("write"
+                  (when .state.input.filePath
+                    (list (cons .state.input.filePath nil))))
+                 ((or "edit" "apply_patch")
+                  (unless .state.metadata.diff
+                    (error "Missing diff metadata for %s tool" .tool))
+                  (opencode-diff->source-line-ranges .state.metadata.diff))))
+        (when-let ((file (opencode--resolve-file-reference (car file-ranges))))
+          (opencode--with-session-buffer .sessionID
+            (cl-pushnew file opencode--files-edited-this-turn :test #'equal))
+          (run-hook-with-args 'opencode-file-edited-functions
+                              file (cdr file-ranges)))))))
 
 (defvar opencode--files-finished-editing-current nil
   "Current `opencode-files-finished-editing-functions' run context.")
@@ -355,32 +360,6 @@ Or nil to disable logging.")
                   (plist-put context :active-hook nil)
                   (opencode--run-next-files-finished-editing-hook)))
             (opencode--finish-files-finished-editing-hook-run context)))))))
-
-(defun opencode--maybe-run-file-edited-hook (part)
-  "Run `opencode-file-edited-functions' if PART completed a file edit."
-  (let-alist part
-    (when (and (equal .type "tool")
-               (equal .state.status "completed"))
-      (opencode--run-file-edited-hook .tool .state))))
-
-(defun opencode--message-summary-diff-files (info)
-  "Return file names from INFO summary diffs."
-  (when-let ((diffs (map-nested-elt info '(summary diffs))))
-    (delq nil
-          (mapcar (lambda (diff)
-                    (opencode--resolve-file-reference
-                     (alist-get 'file diff)))
-                  (seq-into diffs 'list)))))
-
-(defun opencode--record-files-edited-this-turn (info)
-  "Record INFO summary diff files for the session's current turn."
-  (let-alist info
-    (when (and .sessionID (map-nested-elt info '(summary diffs)))
-      (let ((files (opencode--message-summary-diff-files info)))
-        (opencode--with-session-buffer .sessionID
-          (setq opencode--files-edited-this-turn
-                (delete-dups
-                 (append opencode--files-edited-this-turn files))))))))
 
 (defun opencode--maybe-run-files-finished-editing-hook (session-id)
   "Run `opencode-files-finished-editing-functions' for SESSION-ID's pending files."
@@ -552,9 +531,7 @@ Also prompts for pending questions or permissions if any."
           (message.part.delta (opencode-session--update-part
                                .partID properties .delta
                                (gethash .partID opencode-part-type)))
-          (message.updated
-           (opencode--record-files-edited-this-turn .info)
-           (opencode-session--message-updated .info))
+          (message.updated (opencode-session--message-updated .info))
           (permission.asked
            (opencode--permission-request
             .id .sessionID .permission
@@ -571,8 +548,8 @@ Also prompts for pending questions or permissions if any."
          (directory (alist-get 'directory data))
          (payload (alist-get 'payload data)))
     (if (and directory payload)
-        (let ((default-directory (opencode--normalize-directory directory)))
-          (with-current-buffer (process-buffer opencode--event-subscription)
+        (with-current-buffer (process-buffer opencode--event-subscription)
+          (let ((default-directory (opencode--normalize-directory directory)))
             (opencode--handle-message payload)))
       (unless (string= "server.heartbeat" (alist-get 'type payload))
         (opencode--log-event "WARNING GLOBAL EVENT" data)))))

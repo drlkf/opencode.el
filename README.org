@@ -246,6 +246,11 @@ rather than creating and deleting copies. Then from your somewhat more secure
 and non AI-infected development environment, review and then pull the changes
 from the shared folder.
 
+* Performance
+Make sure you are using my branch of [[https://github.com/sczi/plz-event-source/tree/long-lines-fix][plz-event-source]] with a major performance
+fix, and set both =comint-scroll-show-maximum-output= and
+=comint-move-point-for-output= to nil.
+
 * Configuration
 - =opencode-command= and =opencode-serve-command= can be used to configure how to
   run a headless opencode server

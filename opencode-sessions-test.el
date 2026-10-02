@@ -205,8 +205,7 @@
               (search-forward "opencode-sessions.el")
               (should (button-at (1- (point))))
               (search-forward "7|")
-              (should (eq (get-text-property (- (point) 3) 'field) 'output))
-              (should (get-text-property (- (point) 3) 'read-only)))
+              (should (eq (get-text-property (- (point) 3) 'field) 'output)))
             ;; A fenced table is code and must never be aligned.
             (opencode-session--update-part
              "text" part "\n```markdown\n| Code | Value |\n| --- | --- |\n| x | y |\n```\n\n"

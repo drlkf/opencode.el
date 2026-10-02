@@ -238,7 +238,7 @@ the optional fourth element is a number to sort by."
                     (* (any alnum "@%_./~+-")))
              (optional ":"
                        (group (+ digit))
-                       (optional "-" (+ digit)))
+                       (optional (any "-" "–") (+ digit)))
              "`")))
     (save-excursion
       (goto-char start)

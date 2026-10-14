@@ -1278,14 +1278,16 @@ bound to the exchange ids at point."
 (defun opencode-rename-session (&optional session)
   "Rename SESSION. If in a session buffer, rename that session."
   (interactive)
-  (let ((title (read-string "Title: ")))
+  (let* ((old-title (or (alist-get 'title session)
+                        (string-remove-prefix
+                         "*OpenCode: "
+                         (string-trim-right (buffer-name)
+                                            "\\*\\(<[0-9]+>\\)?"))))
+         (title (read-string "Title: " old-title)))
     (opencode-api-rename-session ((or (alist-get 'id session)
                                       opencode-session-id))
         `((title . ,title))
-        _res
-      (unless session
-        (rename-buffer
-         (generate-new-buffer-name (format "*OpenCode: %s*" title)))))))
+        _res)))
 
 (defun opencode-session--display-error (session-id message)
   "Display error MESSAGE in SESSION-ID and then new prompt."

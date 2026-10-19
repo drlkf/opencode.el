@@ -409,12 +409,12 @@ LOUDLY is passed through."
                 (font-lock-multiline . t)
                 (font-lock-syntactic-face-function . markdown-syntactic-face)
                 ;; Unlike markdown-mode, leave rear-nonsticky (comint's
-                ;; read-only prompt) and help-echo (file buttons) alone.
+                ;; read-only prompt), help-echo (file buttons) and display
+                ;; (prompt labels) alone.
                 (font-lock-extra-managed-props
-                 . (composition display invisible keymap mouse-face))))
+                 . (composition invisible keymap mouse-face))))
   (add-to-invisibility-spec 'markdown-markup)
   (visual-line-mode)
-  (cursor-intangible-mode)
   (yank-media-handler "\\`image/" #'opencode--yank-image))
 
 (defun opencode-yank-code-block ()
@@ -473,53 +473,42 @@ in webchat."
     (ext (or (mailcap-extension-to-mime ext)
              "text/plain"))))
 
-(defun opencode--remove-label (overlay after _beg _end &optional _len)
-  "Called AFTER deleting OVERLAY, remove the associated part from context."
-  (when (and after
-             (not (eq this-command 'comint-send-input)))
-    (let ((file-url (overlay-get overlay 'file-url))
-          (buffer-name (overlay-get overlay 'buffer-name))
-          (region-id (overlay-get overlay 'region-id))
-          (agent-name (overlay-get overlay 'agent-name))
-          (ov-start (overlay-start overlay))
-          (ov-end (overlay-end overlay)))
-      (setq opencode--extra-parts
-            (seq-remove (lambda (part)
-                          (let-alist part
-                            (cond
-                             (file-url (string= file-url .url))
-                             (buffer-name (string= buffer-name .metadata.buffer-name))
-                             (region-id (eq region-id .metadata.region-id))
-                             (agent-name (string= agent-name .name)))))
-                        opencode--extra-parts))
-      (delete-region ov-start ov-end)
-      (delete-overlay overlay))))
+(defun opencode--insert-label (name part)
+  "Insert a label showing NAME that sends PART with the prompt.
+The label is a single character, so it is deleted as a unit, and undo
+restores it together with PART."
+  (insert (propertize "￼"
+                      'display (propertize name 'face 'markdown-inline-code-face)
+                      'opencode-label-name name
+                      'opencode-part part)))
 
-(defun opencode--in-label-p ()
-  "Return non-nil if point is inside (or at the edge of) a label overlay."
-  (cl-loop for ov in (overlays-at (point))
-           thereis (overlay-get ov 'opencode-label)))
+(defun opencode--code-span (text)
+  "Return TEXT as a Markdown code span."
+  (let ((delimiter (make-string (1+ (opencode--longest-backtick-run text)) ?`))
+        (padding (if (or (string-prefix-p "`" text)
+                         (string-suffix-p "`" text))
+                     " "
+                   "")))
+    (concat delimiter padding text padding delimiter)))
 
-(defun opencode--insert-intangible (name extra-prop extra-value)
-  "Insert an intangible label with NAME (buffer or filename).
-Assign the overlay EXTRA-PROP with EXTRA-VALUE."
-  (let* ((start (point))
-         ;; Markdown hides the delimiters, so NAME is shown as inline code
-         (delimiter (make-string (1+ (opencode--longest-backtick-run name)) ?`))
-         (padding (if (or (string-prefix-p "`" name)
-                          (string-suffix-p "`" name))
-                      " "
-                    ""))
-         (end (progn
-                (insert (propertize (concat delimiter padding name padding)
-                                    'cursor-intangible t))
-                (insert (propertize delimiter 'rear-nonsticky t))
-                (point)))
-         (ov (make-overlay start end nil t nil)))
-    (overlay-put ov 'opencode-label t)
-    (overlay-put ov extra-prop extra-value)
-    (overlay-put ov 'modification-hooks '(opencode--remove-label))
-    ov))
+(defun opencode--input-text-and-parts (start end)
+  "Return (TEXT . PARTS) for the input between START and END.
+PARTS are those of the labels in the input, which TEXT shows as code."
+  (let ((pos start)
+        chunks
+        parts)
+    (while (< pos end)
+      (if-let ((name (get-text-property pos 'opencode-label-name)))
+          (progn
+            (push (opencode--code-span name) chunks)
+            (push (get-text-property pos 'opencode-part) parts)
+            (cl-incf pos))
+        (let ((next (next-single-property-change pos 'opencode-part nil end)))
+          (push (buffer-substring-no-properties pos next) chunks)
+          (setq pos next))))
+    (cons (apply #'concat (nreverse chunks))
+          ;; a label yanked twice shares its part
+          (delete-dups (nreverse parts)))))
 
 (defun opencode--add-file-to-context (file &optional mime display-name)
   "Add FILE to context with optional MIME and DISPLAY-NAME."
@@ -527,12 +516,11 @@ Assign the overlay EXTRA-PROP with EXTRA-VALUE."
                            (opencode--relative-path-for-display file)))
          (mime (or mime (opencode--mimetype file)))
          (url (concat "file://" file)))
-    (push `((type . file)
-            (filename . ,display-name)
-            (mime . ,mime)
-            (url . ,url))
-          opencode--extra-parts)
-    (opencode--insert-intangible display-name 'file-url url)
+    (opencode--insert-label display-name
+                            `((type . file)
+                              (filename . ,display-name)
+                              (mime . ,mime)
+                              (url . ,url)))
     (insert " ")))
 
 (defun opencode--image-extension (mime)
@@ -625,34 +613,29 @@ Otherwise prompt for file in current project."
                     (read-buffer "Add to context: ")
                   (buffer-name))))
     (with-last-opencode-session
-     (push `((type . text)
-             (text . ,(concat
-                       (format "<buffer name=\"%s\">" buffer)
-                       (with-current-buffer buffer
-                         (buffer-substring-no-properties (point-min) (point-max)))
-                       "</buffer>"))
-             (synthetic . t)
-             (metadata . ((buffer-name . ,buffer))))
-           opencode--extra-parts)
-     (opencode--insert-intangible buffer 'buffer-name buffer))))
+     (opencode--insert-label
+      buffer
+      `((type . text)
+        (text . ,(concat
+                  (format "<buffer name=\"%s\">" buffer)
+                  (with-current-buffer buffer
+                    (buffer-substring-no-properties (point-min) (point-max)))
+                  "</buffer>"))
+        (synthetic . t))))))
 
 (defun opencode-add-region ()
   "Add the active region to context."
   (interactive)
   (if (use-region-p)
       (let ((region (buffer-substring-no-properties (region-beginning)
-                                                    (region-end)))
-            (region-id (gensym)))
+                                                    (region-end))))
         (with-last-opencode-session
-         (push `((type . text)
-                 (text . ,(concat "<region>" region "</region>"))
-                 (synthetic . t)
-                 (metadata . ((region-id . ,region-id))))
-               opencode--extra-parts)
-         (opencode--insert-intangible
+         (opencode--insert-label
           (format "region: %s"
                   (truncate-string-to-width region 24 0 nil (truncate-string-ellipsis)))
-          'region-id region-id)
+          `((type . text)
+            (text . ,(concat "<region>" region "</region>"))
+            (synthetic . t)))
          (insert " ")))
     (user-error "No active region")))
 
@@ -671,11 +654,10 @@ Otherwise prompt for file in current project."
                    (cl-loop for agent in subagents
                             collect (let-alist agent
                                       (list .name .name .description))))))
-        (push `((type . "agent")
-                (name . ,name))
-              opencode--extra-parts)
         (delete-char -1)
-        (opencode--insert-intangible (concat "@" name) 'agent-name name)))))
+        (opencode--insert-label (concat "@" name)
+                                `((type . "agent")
+                                  (name . ,name)))))))
 
 (defun opencode-session--sync-agent-and-model (callback)
   "Ensure the server's session agent and model match the buffer's, then
@@ -717,11 +699,14 @@ synthetic text such as added buffers or regions)."
   "Send STRING as input to current opencode session."
   (opencode--highlight-input)
   (opencode--output "\n")
-  (let ((extra-parts opencode--extra-parts)
-        (temp-files opencode--temp-files)
-        sent-message)
-    (setf opencode--extra-parts nil
-          opencode--temp-files nil)
+  ;; STRING is the buffer text of the input, where each label is one character
+  (pcase-let ((`(,string . ,extra-parts)
+               (opencode--input-text-and-parts
+                comint-last-input-start
+                (+ comint-last-input-start (length string))))
+              (temp-files opencode--temp-files)
+              (sent-message nil))
+    (setf opencode--temp-files nil)
     (cond
      ((string-prefix-p "/" string)
       (let* ((space-pos (seq-position string ?\s))
@@ -770,7 +755,6 @@ Preserve any pending input context while sending STRING as a plain prompt."
           (set-marker (process-mark process) end)
           (let ((comint-last-input-start start)
                 (comint-last-input-end end)
-                (opencode--extra-parts nil)
                 (opencode--temp-files nil))
             (opencode--send-input process string)
             (opencode--maybe-insert-block-spacing)))
@@ -1292,7 +1276,6 @@ If CALLBACK is given, it is called with the session once initialized."
                   opencode-session-agent (or agent (car opencode-session-agents))
                   mode-line-process '(:eval (opencode--session-status-indicator)))
             (hack-dir-local-variables-non-file-buffer)
-            (add-hook 'fill-nobreak-predicate #'opencode--in-label-p nil t)
             (puthash .id buffer opencode-session-buffers)
             (let ((proc (start-process "dummy" buffer nil)))
               (set-process-query-on-exit-flag proc nil)

@@ -38,9 +38,6 @@
 (defvar opencode-models nil
   "List of available models, filtered to enabled ones.")
 
-(defvar-local opencode--extra-parts nil
-  "An list containing extra parts to send with the next input.")
-
 (defvar opencode--event-subscription nil
   "SSE event process for the global event stream.")
 

@@ -175,6 +175,28 @@ for session \"session\" and assistant message \"message\" render here."
     (search-forward "$ ls")
     (should-not (markdown-code-block-at-pos (1- (point))))))
 
+(ert-deftest opencode-session-label-visible-text-test ()
+  "Show only the label name, even right after the invisible prompt."
+  (dolist (case '(("AGENTS.md" . "`AGENTS.md`")
+                  ("a`b" . "``a`b``")
+                  ("`x`" . "`` `x` ``")))
+    (with-opencode-session-test-buffer
+      (opencode--output "Hi!\n\n")
+      (opencode--show-prompt)
+      (let* ((start (point))
+             (ov (opencode--insert-intangible (car case) 'buffer-name (car case))))
+        (font-lock-ensure)
+        (should (equal (cdr case)
+                       (buffer-substring-no-properties start (overlay-end ov))))
+        ;; Padding spaces around `` `x` `` stay visible, hence a substring check
+        (should (string-search
+                 (car case)
+                 (cl-loop for pos from start below (overlay-end ov)
+                          unless (invisible-p pos)
+                          concat (string (char-after pos)))))
+        (should (invisible-p start))
+        (should (invisible-p (1- (overlay-end ov))))))))
+
 (ert-deftest opencode-session-diff-refinement-test ()
   "Refine entire synthetic hunks without touching input or earlier output."
   (with-opencode-session-test-buffer

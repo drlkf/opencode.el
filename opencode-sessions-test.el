@@ -23,7 +23,7 @@
         (should button)
         (should (equal (button-get button 'button-data)
                        (cons (expand-file-name "opencode-sessions.el"
-                                                file-directory)
+                                               file-directory)
                              440)))))))
 
 (ert-deftest opencode-session-markdown-fontification-test ()
@@ -229,6 +229,32 @@
             (should (equal (buffer-substring-no-properties
                             (process-mark process) (point-max))
                            "pending input")))
+        (delete-process process)))))
+
+(ert-deftest opencode-session-reasoning-leading-newline-test ()
+  "A streamed reasoning part starting with a newline adds no blank line or margin."
+  (with-temp-buffer
+    (opencode-session-mode)
+    (let ((process (start-process "opencode-reasoning-test" (current-buffer) nil))
+          (opencode-session-buffers (make-hash-table :test 'equal))
+          (opencode-part-type (make-hash-table :test 'equal))
+          (opencode-assistant-messages (list (cons "message" nil)))
+          (part '((sessionID . "session") (messageID . "message") (text . ""))))
+      (puthash "session" (current-buffer) opencode-session-buffers)
+      (unwind-protect
+          (progn
+            (opencode--output "request\n\n")
+            (opencode-session--update-part "reasoning" part nil "reasoning")
+            (opencode-session--update-part "reasoning" part "\n" "reasoning")
+            (opencode-session--update-part "reasoning" part "Thinking" "reasoning")
+            (should (equal (buffer-substring-no-properties
+                            (point-min) (process-mark process))
+                           "request\n\nThinking"))
+            (dolist (pos (number-sequence (point-min) (+ (point-min) 8)))
+              (should-not (seq-some (lambda (ov) (overlay-get ov 'line-prefix))
+                                    (overlays-at pos))))
+            (should (seq-some (lambda (ov) (overlay-get ov 'line-prefix))
+                              (overlays-at (+ (point-min) 9)))))
         (delete-process process)))))
 
 (ert-deftest opencode-session-table-alignment-context-test ()

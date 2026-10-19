@@ -438,8 +438,8 @@ Isolate conventional code-block fontification from session properties."
   ;; already-fontified Markdown.  Collect code faces in an isolated buffer.
   (setq-local font-lock-defaults
               '(nil nil nil nil
-                    (font-lock-fontify-syntactically-function
-                     . opencode--fontify-markdown)))
+                (font-lock-fontify-syntactically-function
+                 . opencode--fontify-markdown)))
   (setq-local font-lock-fontify-syntactically-function #'opencode--fontify-markdown)
   ;; File-reference buttons are created by comint output, not font-lock.
   (setq-local font-lock-extra-managed-props
@@ -820,7 +820,7 @@ text changes so session properties and markers survive on unchanged text."
         (text (buffer-substring-no-properties beg end))
         (output-properties
          (cl-loop for property in '(field read-only insert-in-front-hooks
-                                         inhibit-line-move-field-capture front-sticky)
+                                    inhibit-line-move-field-capture front-sticky)
                   for value = (get-text-property beg property)
                   when value append (list property value)))
         (inhibit-read-only t))
@@ -960,7 +960,14 @@ PART-ID is id of PART"
                      current-type
                      new-block-p)
             (setf delta (string-trim-left delta)))
-          (when (and current-type new-block-p)
+          ;; text and reasoning parts start once they have visible content,
+          ;; so leading whitespace deltas stay trimmed
+          (when (and current-type
+                     new-block-p
+                     ;; switch the type to reasoning only when we get the first
+                     ;; non-empty delta of the reasoning block
+                     (or (eq current-type 'tool)
+                         (and delta (not (string-empty-p delta)))))
             (opencode--align-finished-tables t)
             (when (and (eq current-type 'text)
                        (not (eq last-type 'text)))
@@ -1012,12 +1019,14 @@ PART-ID is id of PART"
 
 (defun opencode--add-margin (start end face)
   "Display margin from START (inclusive) to END (exclusive) with FACE."
-  (let ((ov (make-overlay start (1- end)))
-        (margin (propertize ">" 'display
-                            `((margin left-margin)
-                              ,(propertize "▎" 'face face)))))
-    (overlay-put ov 'line-prefix margin)
-    (overlay-put ov 'wrap-prefix margin)))
+  ;; a reversed range would highlight the lines before START
+  (when (> end start)
+    (let ((ov (make-overlay start (1- end)))
+          (margin (propertize ">" 'display
+                              `((margin left-margin)
+                                ,(propertize "▎" 'face face)))))
+      (overlay-put ov 'line-prefix margin)
+      (overlay-put ov 'wrap-prefix margin))))
 
 (defun opencode--replay-user-request (message)
   "Replay a user request MESSAGE."
@@ -1142,13 +1151,13 @@ PART-ID is id of PART"
                        (unless (string-empty-p text)
                          (pcase .type
                            ("text"
-                             (unless (equal last-part-type "text")
-                               (setf opencode-last-response-start
-                                     (opencode--session-process-position)))
-                             (setq opencode--table-scan-marker
-                                   (copy-marker (opencode--session-process-position)))
-                             (opencode--output text)
-                             (opencode--align-finished-tables t))
+                            (unless (equal last-part-type "text")
+                              (setf opencode-last-response-start
+                                    (opencode--session-process-position)))
+                            (setq opencode--table-scan-marker
+                                  (copy-marker (opencode--session-process-position)))
+                            (opencode--output text)
+                            (opencode--align-finished-tables t))
                            ("reasoning"
                             (opencode--insert-reasoning-block
                              text)))

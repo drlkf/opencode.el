@@ -19,9 +19,8 @@
 (require 'project)
 (require 'savehist)
 
-(defvar opencode-last-model '((providerID . "opencode")
-                              (modelID . "big-pickle"))
-  "Last model used.")
+(defvar opencode-last-model nil
+  "Last model used, a Model.Ref alist of id and providerID.")
 (add-to-list 'savehist-additional-variables 'opencode-last-model)
 
 (defvar opencode-agents nil
@@ -38,9 +37,6 @@
 
 (defvar opencode-models nil
   "List of available models, filtered to enabled ones.")
-
-(defvar opencode-part-type (make-hash-table :test 'equal)
-  "Mapping of part id's to their type.")
 
 (defvar-local opencode--extra-parts nil
   "An list containing extra parts to send with the next input.")

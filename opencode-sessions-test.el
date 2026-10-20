@@ -79,8 +79,8 @@ for session \"session\" and assistant message \"message\" render here."
     (save-excursion
       (goto-char (point-min))
       (search-forward "Heading")
-      (should (memq 'markdown-ts-heading-1
-                    (get-text-property (1- (point)) 'face)))
+      (should (memq 'markdown-header-face-1
+                    (ensure-list (get-text-property (1- (point)) 'face))))
       (goto-char (point-min))
       (search-forward "opencode-sessions.el")
       (let ((button (button-at (1- (point)))))
@@ -90,15 +90,15 @@ for session \"session\" and assistant message \"message\" render here."
       (goto-char (point-min))
       (search-forward "-old")
       (should (memq 'diff-removed
-                    (get-text-property (1- (point)) 'face)))
+                    (ensure-list (get-text-property (1- (point)) 'face))))
       (should (cl-some (lambda (ov) (overlay-get ov 'line-prefix))
                        (overlays-at (1- (point)))))
       (search-forward "```")
       (should-not (cl-some (lambda (ov) (overlay-get ov 'line-prefix))
                            (overlays-at (- (point) 2))))
       (search-forward "**Testing button behavior**")
-      (should (memq 'markdown-ts-bold
-                    (get-text-property (- (point) 27) 'face)))
+      (should (memq 'markdown-bold-face
+                    (ensure-list (get-text-property (- (point) 25) 'face))))
       (should (get-char-property (- (point) 27) 'invisible))
       (search-forward "(+ 1 2)")
       (should (cl-some (lambda (ov) (overlay-get ov 'line-prefix))
@@ -152,10 +152,8 @@ for session \"session\" and assistant message \"message\" render here."
     (insert (opencode--fenced-block "```\ntext\n" "text") "\n")
     (goto-char (point-min))
     (search-forward "text" nil nil 2)
-    (let ((node (treesit-node-at (point) 'markdown)))
-      (while (and node (not (equal (treesit-node-type node) "fenced_code_block")))
-        (setq node (treesit-node-parent node)))
-      (should node))
+    (syntax-propertize (point-max))
+    (should (markdown-code-block-at-point-p))
     (opencode-yank-code-block)
     (should (equal (current-kill 0 t) "```\ntext\n"))))
 
@@ -191,7 +189,7 @@ for session \"session\" and assistant message \"message\" render here."
         (should (= calls 1))
         (let ((output (buffer-substring-no-properties
                        (point-min) (process-mark process))))
-          (should (string-match-p "| +7|" output))
+          (should (string-match-p "| +7 +|" output))
           (should (string-suffix-p "Following prose.\n" output)))
         (should (equal (buffer-substring-no-properties
                         (process-mark process) (point-max))
@@ -201,8 +199,8 @@ for session \"session\" and assistant message \"message\" render here."
           (goto-char (point-min))
           (search-forward "opencode-sessions.el")
           (should (button-at (1- (point))))
-          (search-forward "7|")
-          (should (eq (get-text-property (- (point) 3) 'field) 'output)))
+          (search-forward "7 |")
+          (should (eq (get-text-property (- (point) 4) 'field) 'output)))
         ;; A fenced table is code and must never be aligned.
         (opencode-session--handle-event
          'session.text.delta
@@ -256,24 +254,11 @@ for session \"session\" and assistant message \"message\" render here."
                       (overlays-at (+ (point-min) 9))))))
 
 (ert-deftest opencode-session-table-alignment-context-test ()
-  "Table alignment must not schedule a context mode in the session buffer."
+  "Table alignment must not disturb the session buffer's comint keymap."
   (with-opencode-session-test-buffer
     (insert "| Name | Value |\n| --- | --- |\n| x | y |\n")
-    (let ((markdown-ts-enable-table-mode t)
-          (markdown-ts-enable-code-block-context-mode t)
-          (timer (symbol-function 'run-with-timer))
-          context-timers)
-      (cl-letf (((symbol-function 'run-with-timer)
-                 (lambda (seconds repeat function &rest args)
-                   (if (memq function '(markdown-ts--enable-in-table-mode
-                                        markdown-ts--enable-code-block-in-context-mode))
-                       (push function context-timers)
-                     (apply timer seconds repeat function args)))))
-        (opencode--align-output-table (point-min) (point-max)))
-      (should-not context-timers)
-      (should-not markdown-ts-table-mode)
-      (should-not markdown-ts-in-table-mode)
-      (should (eq (key-binding (kbd "RET")) 'comint-send-input)))))
+    (opencode--align-output-table (point-min) (point-max))
+    (should (eq (key-binding (kbd "RET")) 'comint-send-input))))
 
 (ert-deftest opencode-session-history-table-alignment-test ()
   "Align replayed assistant tables, preserving user requests and code fences."
@@ -297,11 +282,10 @@ for session \"session\" and assistant message \"message\" render here."
         (opencode--replay-session-messages messages))
       (let ((output (buffer-substring-no-properties (point-min) (point-max))))
         (should (string-prefix-p (concat table "\n\n") output))
-        (should (string-match-p "|x +| +y|" output))
+        (should (string-match-p "| +x +| +y +|" output))
         (should (string-suffix-p (concat fenced "\n\n") output)))
       (should-not opencode--table-scan-marker)
-      (should (= (process-mark process) (point-max)))
-      (should-not markdown-ts-in-table-mode))))
+      (should (= (process-mark process) (point-max))))))
 
 (provide 'opencode-sessions-test)
 ;;; opencode-sessions-test.el ends here

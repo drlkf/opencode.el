@@ -38,8 +38,8 @@ Or nil (default) to turn off logging.")
 KIND is `:location' to add `location[directory]=...', `:directory' to add
 `directory=...', or nil to leave PATH unchanged."
   (if-let ((param (pcase kind
-                     (:location "location%5Bdirectory%5D=")
-                     (:directory "directory="))))
+                    (:location "location%5Bdirectory%5D=")
+                    (:directory "directory="))))
       (concat path (if (string-match-p "\\?" path) "&" "?")
               param (url-hexify-string (directory-file-name (expand-file-name default-directory))))
     path))
@@ -58,9 +58,16 @@ and saving to CURRENT-BUFFER while running BODY. DATA is the request body
 form, if any. LOCATION is `:location', `:directory', or nil, controlling
 which location query parameter (if any) is appended to PATH."
     (cl-with-gensyms (current-buffer result saved-path saved-data)
-      `(let ((,current-buffer (current-buffer))
-             (,saved-path (opencode-api--add-location-query (concat "/api" ,path) ,location))
-             (,saved-data ,data))
+      `(let* ((,current-buffer (current-buffer))
+              (,saved-path (opencode-api--add-location-query (concat "/api" ,path) ,location))
+              (,saved-data ,data)
+              ;; plz 0.9.1 has no PATCH and feeds the body to curl as config
+              ;; (exit 26); pass method and body as curl args until plz 0.10.
+              ,@(when (eq method 'patch)
+                  `((plz-curl-default-args
+                     (append plz-curl-default-args
+                             (list "--request" "PATCH"
+                                   "--data-binary" (json-encode ,saved-data)))))))
          (when opencode-api-log-max-lines
            (with-current-buffer (get-buffer-create "*opencode-api-log*")
              (save-excursion
@@ -70,13 +77,13 @@ which location query parameter (if any) is appended to PATH."
                  (insert "REQUEST BODY:")
                  (pp ,saved-data (current-buffer)))
                (opencode--truncate-at-max-lines opencode-api-log-max-lines))))
-         (plz ',method (concat opencode-api-url ,saved-path)
+         (plz ',(if (eq method 'patch) 'get method) (concat opencode-api-url ,saved-path)
            :as (lambda () (unless (string-empty-p (buffer-string))
-                       (json-parse-buffer :array-type 'list
-                                          :object-type 'alist)))
+                            (json-parse-buffer :array-type 'list
+                                               :object-type 'alist)))
            :headers `(("Content-Type" . "application/json")
                       ,(opencode--auth-header))
-           ,@(when data
+           ,@(when (and data (not (eq method 'patch)))
                `(:body (json-encode ,saved-data)))
            :then (lambda (,result)
                    (when opencode-api-log-max-lines

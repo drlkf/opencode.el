@@ -1203,7 +1203,7 @@ STATE is a Session.Message.ToolState.* alist (status, input, content, ...)."
   "Open comint based shell for SESSION.
 POP-TO-BUFFER controls whether to pop to or switch to the session buffer.
 Returns the buffer.
-If CALLBACK is given, it will be called with the session after it is initialized."
+If CALLBACK is given, it is called with the session once initialized."
   (let-alist session
     (let ((old-buffer (gethash .id opencode-session-buffers)))
       (if (buffer-live-p old-buffer)

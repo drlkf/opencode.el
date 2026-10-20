@@ -14,7 +14,7 @@
 (require 'comint)
 (require 'magit)
 (require 'mailcap)
-(require 'markdown-ts-mode)
+(require 'markdown-mode)
 (require 'opencode-api)
 (require 'opencode-common)
 (require 'opencode-convert)
@@ -353,57 +353,34 @@ alist of (id . model-id) (providerID . provider-id)."
     (prog1 opencode--skip-files-finished-editing-hook-on-next-idle
       (setq opencode--skip-files-finished-editing-hook-on-next-idle nil))))
 
-(defun opencode--fontify-code-block (mode beg end)
-  "Collect MODE faces for BEG..END without sharing session text properties."
-  (let ((text (buffer-substring-no-properties beg end))
-        faces)
-    (with-temp-buffer
-      (insert text)
-      (delay-mode-hooks (funcall mode))
-      (font-lock-ensure)
-      (let ((pos (point-min)))
-        (while (< pos (point-max))
-          (let ((next (next-single-property-change pos 'face nil (point-max)))
-                (face (get-text-property pos 'face)))
-            (when face
-              (push (list (+ beg (1- pos)) (+ beg (1- next)) face) faces))
-            (setq pos next)))))
-    (nreverse faces)))
-
-(defun opencode--fontify-markdown (start end &optional loudly)
-  "Fontify Markdown between START and END, optionally LOUDLY.
-Isolate conventional code-block fontification from session properties."
-  (let ((collect (symbol-function 'markdown-ts--fontify-non-ts-collect-faces)))
-    (cl-letf (((symbol-function 'markdown-ts--fontify-non-ts-collect-faces)
-               (lambda (mode beg finish)
-                 (if (memq mode markdown-ts-code-block-force-conventional-modes)
-                     (funcall collect mode beg finish)
-                   (opencode--fontify-code-block mode beg finish)))))
-      (treesit-font-lock-fontify-region start end loudly))))
-
 (define-derived-mode opencode-session-mode comint-mode "OpenCode"
   "Major mode for interacting with an opencode session."
   (setq-local comint-use-prompt-regexp nil
               comint-input-sender 'opencode--send-input
               comint-highlight-input nil
               left-margin-width (1+ left-margin-width))
-  (setq-local markdown-ts-hide-markup t
-              markdown-ts-enable-code-block-context-mode nil
-              markdown-ts-enable-table-mode nil)
   ;; Set up Markdown's parser and font-lock without replacing comint as the
   ;; major mode (and losing its process, prompt, and input handling).
-  (unless (and (treesit-language-available-p 'markdown)
-               (treesit-language-available-p 'markdown-inline))
-    (error "OpenCode sessions require the markdown and markdown-inline Tree-sitter grammars"))
-  (markdown-ts-mode--initialize)
-  ;; Markdown's conventional-mode helper uses an indirect buffer sharing all
-  ;; session properties.  Mode initialization/cleanup there can interfere with
-  ;; already-fontified Markdown.  Collect code faces in an isolated buffer.
+  (setq-local markdown-hide-markup t
+              markdown-fontify-code-blocks-natively t
+              markdown-table-at-point-p-function #'gfm--table-at-point-p)
+  (add-hook 'syntax-propertize-extend-region-functions
+            #'markdown-syntax-propertize-extend-region nil t)
+  (add-hook 'jit-lock-after-change-extend-region-functions
+            #'markdown-font-lock-extend-region-function t t)
+  (add-hook 'font-lock-extend-region-functions
+            #'markdown-font-lock-extend-region t t)
+  (setq-local syntax-propertize-function #'markdown-syntax-propertize)
+  (syntax-propertize (point-max)) ;; Propertize before hooks run, etc.
   (setq-local font-lock-defaults
-              '(nil nil nil nil
-                (font-lock-fontify-syntactically-function
-                 . opencode--fontify-markdown)))
-  (setq-local font-lock-fontify-syntactically-function #'opencode--fontify-markdown)
+              '(markdown-mode-font-lock-keywords
+                nil nil nil nil
+                (font-lock-multiline . t)
+                (font-lock-syntactic-face-function . markdown-syntactic-face)
+                (font-lock-extra-managed-props
+                 . (composition display invisible rear-nonsticky
+                    keymap help-echo mouse-face))))
+  (add-to-invisibility-spec 'markdown-markup)
   ;; File-reference buttons are created by comint output, not font-lock.
   (setq-local font-lock-extra-managed-props
               (cl-set-difference font-lock-extra-managed-props
@@ -415,14 +392,14 @@ Isolate conventional code-block fontification from session properties."
 (defun opencode-yank-code-block ()
   "Yank the code inside the markdown code block under point."
   (interactive)
-  (let* ((node (treesit-parent-until (treesit-node-at (point) 'markdown)
-                                     "fenced_code_block" t))
-         (content (and node (treesit-search-subtree node "code_fence_content"))))
-    (unless node
-      (user-error "Not in a fenced code block"))
-    (if content
-        (copy-region-as-kill (treesit-node-start content) (treesit-node-end content))
-      (kill-new ""))))
+  (syntax-propertize (point-max))
+  (if-let* ((bounds (markdown-get-enclosing-fenced-block-construct))
+            (fence-begin (nth 0 bounds))
+            (fence-end (nth 1 bounds)))
+      (copy-region-as-kill
+       (save-excursion (goto-char fence-begin) (line-beginning-position 2))
+       (save-excursion (goto-char fence-end) (line-beginning-position 1)))
+    (user-error "Not in a fenced code block")))
 
 (defun opencode-copy-conversation ()
   "Copy the current conversation as a Markdown transcript.
@@ -508,7 +485,7 @@ Assign the overlay EXTRA-PROP with EXTRA-VALUE."
          (ov (make-overlay start end)))
     (overlay-put ov 'opencode-label t)
     (overlay-put ov extra-prop extra-value)
-    (overlay-put ov 'display (propertize name 'face 'markdown-ts-code))
+    (overlay-put ov 'display (propertize name 'face 'markdown-inline-code-face))
     (overlay-put ov 'modification-hooks '(opencode--remove-label))
     ov))
 
@@ -803,16 +780,11 @@ text changes so session properties and markers survive on unchanged text."
         (inhibit-read-only t))
     (save-excursion
       (with-temp-buffer
-        ;; Automatic context modes schedule timers which run in whichever
-        ;; buffer is current later, potentially overriding the session's RET.
-        ;; Enable only the table context needed by the alignment command.
-        (let ((markdown-ts-enable-table-mode nil)
-              (markdown-ts-enable-code-block-context-mode nil))
-          (delay-mode-hooks (markdown-ts-mode)))
+        (delay-mode-hooks (gfm-mode))
         (insert text)
+        (font-lock-ensure)
         (goto-char (point-min))
-        (markdown-ts-in-table-mode 1)
-        (markdown-ts-table-align-table t)
+        (markdown-table-align)
         ;; The command always adds a newline.  Do not introduce one if the
         ;; final text part ended at the last cell instead.
         (unless (string-suffix-p "\n" text)
@@ -854,34 +826,30 @@ Retain one line of context for headers whose delimiter has yet to arrive."
                waiting)
           (unwind-protect
               (progn
+                (syntax-propertize limit)
                 (goto-char opencode--table-scan-marker)
                 (while (and (< (point) complete-end) (not waiting))
-                  (let ((node (treesit-node-at (point) 'markdown)))
-                    (while (and node (not (equal (treesit-node-type node) "pipe_table")))
-                      (setq node (treesit-node-parent node)))
-                    ;; At whitespace, `treesit-node-at' can return the table
-                    ;; immediately before point.  Never revisit that table.
-                    (if (and node (< (point) (treesit-node-end node)))
-                        (let ((beg (treesit-node-start node))
-                              (end (treesit-node-end node)))
-                          (if (and (<= end limit)
-                                   (or finished
-                                       (< (save-excursion
-                                            (goto-char end)
-                                            (if (bolp) (point)
-                                              (line-beginning-position 2)))
-                                          complete-end)))
-                              (let ((next (copy-marker end t)))
-                                (unwind-protect
-                                    (progn
-                                      (opencode--align-output-table beg end)
-                                      (goto-char next)
-                                      (set-marker opencode--table-scan-marker next))
-                                  (set-marker next nil)))
-                            (set-marker opencode--table-scan-marker beg)
-                            (setq waiting t)))
-                      (set-marker opencode--table-scan-marker (point))
-                      (forward-line 1))))
+                  (if (markdown-table-at-point-p)
+                      (let ((beg (markdown-table-begin))
+                            (end (markdown-table-end)))
+                        (if (and (<= end limit)
+                                 (or finished
+                                     (< (save-excursion
+                                          (goto-char end)
+                                          (if (bolp) (point)
+                                            (line-beginning-position 2)))
+                                        complete-end)))
+                            (let ((next (copy-marker end t)))
+                              (unwind-protect
+                                  (progn
+                                    (opencode--align-output-table beg end)
+                                    (goto-char next)
+                                    (set-marker opencode--table-scan-marker next))
+                                (set-marker next nil)))
+                          (set-marker opencode--table-scan-marker beg)
+                          (setq waiting t)))
+                    (set-marker opencode--table-scan-marker (point))
+                    (forward-line 1)))
                 (when finished
                   (set-marker opencode--table-scan-marker nil)
                   (setq opencode--table-scan-marker nil)))
@@ -1142,7 +1110,9 @@ send does not needlessly re-select them."
                         (diff-end-of-hunk nil t)
                         (point))))
             (when diff-refine
-              (diff--refine-hunk beg end t))
+              ;; SKIP-IF-LARGE arg only exists since Emacs 31.
+              (apply #'diff--refine-hunk beg end
+                     (and (> (cdr (func-arity 'diff--refine-hunk)) 2) '(t))))
             ;; Font-lock can clear invisible text properties on refontification.
             (let ((overlay (make-overlay beg header-end)))
               (overlay-put overlay 'invisible t)
@@ -1251,7 +1221,9 @@ If CALLBACK is given, it will be called with the session after it is initialized
                   opencode--tool-calls-displayed (make-hash-table :test 'equal)
                   opencode--tool-call-info (make-hash-table :test 'equal)
                   opencode-session-agents (mapcar (lambda (agent)
-                                                    (unless (alist-get 'model agent)
+                                                    (unless (or (alist-get 'model agent)
+                                                                ;; savehist may hold a V1 ref
+                                                                (not (alist-get 'id opencode-last-model)))
                                                       (setf (alist-get 'model agent)
                                                             opencode-last-model))
                                                     agent)

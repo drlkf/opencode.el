@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: purcell/setup-emacs@master
+        with:
+          version: "30.1"
+      - name: Run ERT
+        run: |
+          emacs --batch -L . \
+            --eval "(progn
+              (require 'package)
+              (add-to-list 'package-archives '(\"melpa\" . \"https://melpa.org/packages/\") t)
+              (package-initialize)
+              (package-refresh-contents)
+              (dolist (p '(magit plz plz-media-type plz-event-source markdown-mode))
+                (unless (package-installed-p p) (package-install p))))" \
+            $(printf -- '-l %s ' *-test.el) \
+            -f ert-run-tests-batch-and-exit
+
+  release:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - run: >-
+          npx --yes
+          -p semantic-release@24
+          -p @semantic-release/exec@6
+          -p @semantic-release/git@10
+          semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

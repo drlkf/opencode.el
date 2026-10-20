@@ -56,13 +56,6 @@ of advantages over the official TUI:
    - For python development integrated with opencode.el, with features like AI
      autodebugging exceptions, check out [[https://codeberg.org/sczi/swanky-python/][Swanky Python]]
 
-* Demo
-A brief demo showing starting opencode, viewing a past session,
-toggling an MCP, selecting the agent, model, and variant, performing some edits,
-receiving a notification when the response is finished if the session buffer
-isn't focused, reverting edits, and forking the session.
-#+HTML: <video src="/sczi/opencode.el/media/branch/main/screenshots/demo.webm" controls></video>
-
 * Installation
 When this package is a bit more stable I'll package it on MELPA, for now install
 from git. This package requires Emacs 30.1, [[https://jblevins.org/projects/markdown-mode/][markdown-mode]], plus [[https://github.com/magit/magit][magit]], [[https://github.com/alphapapa/plz.el][plz]], [[https://github.com/r0man/plz-media-type][plz-media-type]],

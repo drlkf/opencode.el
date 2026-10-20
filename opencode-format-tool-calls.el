@@ -39,7 +39,7 @@ BODY is evaluated inside `(let-alist tool-args ...)'."
                ,@body)))))
 
 (opencode-define-tool-formatter "edit"
-    (concat "edit " .filePath ":\n"
+    (concat "edit " .path ":\n"
             (opencode--fenced-block
              (opencode--format-edit-diff .oldString .newString) "diff")))
 
@@ -49,13 +49,13 @@ BODY is evaluated inside `(let-alist tool-args ...)'."
              (opencode--format-apply-patch .patchText) "diff")))
 
 (opencode-define-tool-formatter "write"
-    (format "write %s" .filePath))
+    (format "write %s" .path))
 
 (opencode-define-tool-formatter "read"
     (if (and .offset .limit)
         (format "read `%s:%d` limit=%d"
-                .filePath .offset .limit)
-      (format "read %s" .filePath)))
+                .path .offset .limit)
+      (format "read %s" .path)))
 
 (opencode-define-tool-formatter "grep"
     (concat
@@ -63,7 +63,7 @@ BODY is evaluated inside `(let-alist tool-args ...)'."
      (when (or .include .path)
        (format " in %s" (or .include .path)))))
 
-(opencode-define-tool-formatter "bash"
+(opencode-define-tool-formatter "shell"
     (concat (when .description
               (format "# %s\n" .description))
             (format "$ %s" .command)))
@@ -92,10 +92,20 @@ BODY is evaluated inside `(let-alist tool-args ...)'."
         (format "🔍 Explore: %s" .description)
       (format "🤖 Subagent Task: %s" .description)))
 
+;; V2 may name this tool "subagent" instead of "task"; register both.
+(setf (alist-get "subagent" opencode-tool-formatters nil nil #'equal)
+      (alist-get "task" opencode-tool-formatters nil nil #'equal))
+
+(defun opencode--tool-content-text (content)
+  "Join the text-type entries of Tool.Content array CONTENT into one string."
+  (mapconcat (lambda (item) (or (alist-get 'text item) ""))
+             (seq-filter (lambda (item) (equal (alist-get 'type item) "text")) content)
+             "\n"))
+
 (defun opencode--format-tool-call (tool input)
   "Format TOOL call with INPUT arguments for display."
-  (when (alist-get 'filePath input)
-    (setf (alist-get 'filePath input) (opencode--relative-path-for-display (alist-get 'filePath input))))
+  (when (alist-get 'path input)
+    (setf (alist-get 'path input) (opencode--relative-path-for-display (alist-get 'path input))))
 
   (if-let (tool-formatter (cdr (assoc-string tool opencode-tool-formatters)))
       (funcall tool-formatter input)

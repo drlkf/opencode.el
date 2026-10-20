@@ -14,30 +14,52 @@
 (require 'opencode-common)
 (require 'plz)
 (require 'json)
+(require 'url-util)
 
 (defvar opencode-api-url nil
   "URL of the opencode server we're connected to.")
+
+(defvar opencode-api-password nil
+  "Password used for HTTP Basic auth with the opencode service.")
 
 (defvar opencode-api-log-max-lines nil
   "Maximum number of lines of opencode api requests and responses to log.
 Or nil (default) to turn off logging.")
 
 (defun opencode--auth-header ()
-  "Return auth header based on `opencode-server-username' and `opencode-server-password'."
-  (when opencode-server-password
+  "Return a Basic auth header using `opencode-api-password'."
+  (when opencode-api-password
     (cons "Authorization"
           (concat "Basic "
-                  (base64-encode-string
-                   (format "%s:%s" opencode-server-username opencode-server-password))))))
+                  (base64-encode-string (concat "opencode:" opencode-api-password))))))
+
+(defun opencode-api--add-location-query (path kind)
+  "Append a location-scoped query derived from `default-directory' to PATH.
+KIND is `:location' to add `location[directory]=...', `:directory' to add
+`directory=...', or nil to leave PATH unchanged."
+  (if-let ((param (pcase kind
+                     (:location "location%5Bdirectory%5D=")
+                     (:directory "directory="))))
+      (concat path (if (string-match-p "\\?" path) "&" "?")
+              param (url-hexify-string (directory-file-name (expand-file-name default-directory))))
+    path))
+
+(defun opencode-api--unwrap-data (result)
+  "Return the `data' field of RESULT when present, else RESULT itself."
+  (if-let ((entry (and (listp result) (assq 'data result))))
+      (cdr entry)
+    result))
 
 (eval-and-compile
-  (cl-defun opencode-api--call (method path return-var body &key data)
+  (cl-defun opencode-api--call (method path return-var body &key data location)
     "Generate the body of an opencode api wrapper macro.
 Using METHOD, for endpoint PATH, saving result in RETURN-VAR,
-and saving to CURRENT-BUFFER while running BODY."
+and saving to CURRENT-BUFFER while running BODY. DATA is the request body
+form, if any. LOCATION is `:location', `:directory', or nil, controlling
+which location query parameter (if any) is appended to PATH."
     (cl-with-gensyms (current-buffer result saved-path saved-data)
       `(let ((,current-buffer (current-buffer))
-             (,saved-path ,path)
+             (,saved-path (opencode-api--add-location-query (concat "/api" ,path) ,location))
              (,saved-data ,data))
          (when opencode-api-log-max-lines
            (with-current-buffer (get-buffer-create "*opencode-api-log*")
@@ -53,7 +75,6 @@ and saving to CURRENT-BUFFER while running BODY."
                        (json-parse-buffer :array-type 'list
                                           :object-type 'alist)))
            :headers `(("Content-Type" . "application/json")
-                      ,(cons "x-opencode-directory" (expand-file-name default-directory))
                       ,(opencode--auth-header))
            ,@(when data
                `(:body (json-encode ,saved-data)))
@@ -65,7 +86,7 @@ and saving to CURRENT-BUFFER while running BODY."
                          (goto-char (point-max))
                          (insert "RESPONSE: ")
                          (pp ,result (current-buffer)))))
-                   (let ((,return-var ,result))
+                   (let ((,return-var (opencode-api--unwrap-data ,result)))
                      (if (buffer-live-p ,current-buffer)
                          (with-current-buffer ,current-buffer
                            ,@body)
@@ -82,11 +103,12 @@ and saving to CURRENT-BUFFER while running BODY."
                          (error error-msg)
                        (error "Not connected to opencode"))))))))
 
-  (cl-defun opencode-api--wrap (method path &key elisp-macro-name nodata)
+  (cl-defun opencode-api--wrap (method path &key elisp-macro-name nodata location)
     "Define a macro to wrap api call with METHOD and PATH.
 optionally provide ELISP-MACRO-NAME where opencode-api-elisp-macro-name will be
 the name of the created macro. Set NODATA to indicate a request doesn't have a
-body when it normally would (POST PATCH)."
+body when it normally would (POST PATCH). LOCATION is `:location', `:directory',
+or nil, see `opencode-api--add-location-query'."
     (let ((elisp-macro-name
            (intern
             (concat "opencode-api"
@@ -102,12 +124,13 @@ body when it normally would (POST PATCH)."
                   ,(format "Wrapper for opencode %s endpoint." path)
                   (declare (indent 3))
                   (opencode-api--call ',method `(format ,,path ,@args) return-var body
-                                      :data data))
+                                      :data data :location ',location))
              `(defmacro ,elisp-macro-name
                   (args return-var &rest body)
                 ,(format "Wrapper for opencode %s endpoint." path)
                 (declare (indent 2))
-                (opencode-api--call ',method `(format ,,path ,@args) return-var body)))
+                (opencode-api--call ',method `(format ,,path ,@args) return-var body
+                                    :location ',location)))
          (if (and (seq-contains-p '(post patch) method)
                   (not nodata))
              `(defmacro ,elisp-macro-name
@@ -115,28 +138,33 @@ body when it normally would (POST PATCH)."
                 ,(format "Wrapper for opencode %s endpoint." path)
                 (declare (indent 2))
                 (opencode-api--call ',method ,path return-var body
-                                    :data data))
+                                    :data data :location ',location))
            `(defmacro ,elisp-macro-name
                 (return-var &rest body)
               ,(format "Wrapper for opencode %s endpoint." path)
               (declare (indent defun))
-              (opencode-api--call ',method ,path return-var body)))))))
+              (opencode-api--call ',method ,path return-var body :location ',location)))))))
 
   (defun opencode-api-define-wrapper (endpoint)
     "Create a macro wrapping ENDPOINT."
     (let ((method 'get)
-          nodata)
-      (when (and (listp endpoint)
-                 (seq-contains-p '(get patch post delete) (car endpoint)))
-        (setf method (pop endpoint))
+          nodata
+          location)
+      (when (listp endpoint)
+        (when (seq-contains-p '(get patch post delete) (car endpoint))
+          (setf method (pop endpoint)))
         (when (eq 'nodata (car endpoint))
           (pop endpoint)
-          (setf nodata t)))
+          (setf nodata t))
+        (when (keywordp (car (last endpoint)))
+          (setf location (car (last endpoint)))
+          (setf endpoint (butlast endpoint))))
       (pcase endpoint
-        ((pred stringp) (opencode-api--wrap method endpoint :nodata nodata))
+        ((pred stringp) (opencode-api--wrap method endpoint :nodata nodata :location location))
         (`(,elisp-name ,path) (opencode-api--wrap method path
                                                   :elisp-macro-name elisp-name
-                                                  :nodata nodata)))))
+                                                  :nodata nodata
+                                                  :location location)))))
 
   (defun opencode-api-define-wrappers (api-endpoints)
     "Define wrapping macros for a list of API-ENDPOINTS."
@@ -144,57 +172,39 @@ body when it normally would (POST PATCH)."
       (opencode-api-define-wrapper api-endpoint)))
 
   (opencode-api-define-wrappers
-   '("/global/health"
+   '("/info"
      (projects "/project")
-     (current-project "/project/current")
-     "/path"
-     "/vcs"
-     "/config"
-     (configured-providers "/config/providers")
-     (providers "/provider")
-     (provider-authentication-methods "/provider/auth")
+     (location "/location" :location)
+     (models "/model" :location)
+     (agents "/agent" :location)
+     (commands "/command" :location)
+     (mcps "/mcp" :location)
+     (post nodata connect-mcp "/experimental/mcp/%s/connect" :location)
+     (post nodata disconnect-mcp "/experimental/mcp/%s/disconnect" :location)
+     (sessions "/session" :directory)
+     (session-children "/session?parentID=%s")
+     (sessions-active "/session/active")
      (session "/session/%s")
-     (session-children "/session/%s/children")
-     (session-todos "/session/%s/todo")
-     (session-diff "/session/%s/diff")
-     (session-messages "/session/%s/message")
-     (post sync-message "/session/%s/message")
-     (post send-message "/session/%s/prompt_async")
-     (message-details "/session/%s/message/%s")
-     (delete delete-message "/session/%s/message/%s")
-     (sessions "/session")
-     (sessions-status "/session/status")
      (post create-session "/session")
      (patch rename-session "/session/%s")
-     (post nodata abort-session "/session/%s/abort")
      (delete delete-session "/session/%s")
+     (session-messages "/session/%s/message")
+     (post send-message "/session/%s/prompt")
+     (post set-session-model "/session/%s/model")
+     (post set-session-agent "/session/%s/agent")
+     (post nodata interrupt-session "/session/%s/interrupt")
      (post fork-session "/session/%s/fork")
-     (post revert-message "/session/%s/revert")
-     (post nodata unrevert-all "/session/%s/unrevert")
-     (post respond-permission-request "/session/%s/permissions/%s")
-     (post nodata share-session "/session/%s/share")
-     (delete unshare-session "/session/%s/share")
+     (post revert-stage "/session/%s/revert/stage")
+     (post nodata revert-commit "/session/%s/revert/commit")
+     (delete revert-clear "/session/%s/revert")
      (post execute-command "/session/%s/command")
      (post execute-shell "/session/%s/shell")
-     (post summarize "/session/%s/summarize")
-     (post reply-questions "/question/%s/reply")
-     (post nodata reject-questions "/question/%s/reject")
-     (commands "/command")
-     "/file/status"
-     (find-pattern "/find?pattern=%s")
-     (find-files "/find/file?query=%s")
-     (find-symbols "/find/symbol?query=%s")
-     (list-files "/file?path=%s")
-     (read-file "/file/content?path=%s")
-     "/experimental/tool/ids"
-     (tools-for-model "/experimental/tool?provider=%s&model=%s")
-     "/lsp"
-     "/formatter"
-     (mcps "/mcp")
-     (post nodata enable-mcp "/mcp/%s/connect")
-     (post nodata disable-mcp "/mcp/%s/disconnect")
-     (agents "/agent")
-     (post nodata dispose-instance "/instance/dispose"))))
+     (post nodata compact-session "/session/%s/compact")
+     (session-permissions "/session/%s/permission")
+     (post reply-permission "/session/%s/permission/%s/reply")
+     (session-forms "/session/%s/form")
+     (post reply-form "/session/%s/form/%s/reply")
+     (delete cancel-form "/session/%s/form/%s"))))
 
 (provide 'opencode-api)
 ;;; opencode-api.el ends here

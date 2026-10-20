@@ -40,38 +40,40 @@ abbreviation for home directory paths, or the absolute path."
 
 ;;; Permission title formatting
 
-(defun opencode--permission-format-title (type metadata patterns)
+(defun opencode--permission-format-title (action resources metadata)
   "Return a human-readable title for a permission request.
-TYPE is the permission kind string (e.g. \"bash\").
-METADATA is an alist of extra fields supplied by the server.
-PATTERNS is a list of glob/path patterns from the request."
+ACTION is the permission action string (e.g. \"shell\").
+RESOURCES is a list of resource strings (command, path, pattern, ...)
+from the request.  METADATA is an alist of extra fields, when the
+server happens to supply any; most V2 requests carry none, so
+fall back to RESOURCES."
   (let-alist metadata
-    (pcase type
+    (pcase action
       ("edit"
        (format "Edit %s"
-               (opencode--permission-normalize-path (or .filepath ""))))
+               (opencode--permission-normalize-path (or .filepath (car resources) ""))))
       ("read"
        (format "Read %s"
-               (opencode--permission-normalize-path (or (car patterns) ""))))
+               (opencode--permission-normalize-path (or (car resources) ""))))
       ("glob"
-       (format "Glob \"%s\"" (or .pattern (car patterns) "")))
+       (format "Glob \"%s\"" (or .pattern (car resources) "")))
       ("grep"
-       (format "Grep \"%s\"" (or .pattern (car patterns) "")))
+       (format "Grep \"%s\"" (or .pattern (car resources) "")))
       ("list"
        (format "List %s"
-               (opencode--permission-normalize-path (or .path (car patterns) ""))))
-      ("bash"
+               (opencode--permission-normalize-path (or .path (car resources) ""))))
+      ("shell"
        (if (and .description (not (string-empty-p .description)))
            .description
          (format "Shell command: %s"
-                 (mapconcat #'identity patterns " "))))
+                 (mapconcat #'identity resources " "))))
       ("webfetch"
-       (format "WebFetch %s" (or .url (car patterns) "")))
+       (format "WebFetch %s" (or .url (car resources) "")))
       ("websearch"
-       (format "Web Search \"%s\"" (or .query (car patterns) "")))
+       (format "Web Search \"%s\"" (or .query (car resources) "")))
       ("codesearch"
-       (format "Code Search \"%s\"" (or .query (car patterns) "")))
-      ("task"
+       (format "Code Search \"%s\"" (or .query (car resources) "")))
+      ("subagent"
        (format "%s Task"
                (let ((st (or .subagent_type "")))
                  (if (string-empty-p st) "Unknown"
@@ -79,16 +81,18 @@ PATTERNS is a list of glob/path patterns from the request."
                            (substring st 1))))))
       ("external_directory"
        (let* ((raw (or .parentDir .filepath
-                       (when-let ((p (car patterns)))
-                         (if (string-match-p "\\*" p)
-                             (file-name-directory p)
-                           p))))
+                       (when-let ((r (car resources)))
+                         (if (string-match-p "\\*" r)
+                             (file-name-directory r)
+                           r))))
               (dir (opencode--permission-normalize-path raw)))
          (format "Access external directory %s" (or dir ""))))
       ("doom_loop"
        "Continue after repeated failures")
       (_
-       (format "Call tool %s" type)))))
+       (if resources
+           (format "%s: %s" action (mapconcat #'identity resources " "))
+         (format "Call tool %s" action))))))
 
 ;;; State
 
@@ -174,12 +178,12 @@ CALLBACK is called with one of \"once\", \"always\", or \"reject\"."
 ;;; Permission request handling
 
 (defun opencode--permission-queue-request (buffer permission-id session-id
-                                                  type metadata patterns always)
+                                                  action resources save metadata)
   "Queue a permission request in BUFFER for SESSION-ID.
-PERMISSION-ID identifies the request.  TYPE is the permission kind.
-METADATA, PATTERNS, and ALWAYS come from the server request payload."
+PERMISSION-ID identifies the request.  ACTION is the permission action.
+RESOURCES, SAVE, and METADATA come from the server request payload."
   (with-current-buffer buffer
-    (let* ((title (opencode--permission-format-title type metadata patterns))
+    (let* ((title (opencode--permission-format-title action resources metadata))
            (marker (make-marker)))
       (when (get-buffer-process buffer)
         (opencode--maybe-insert-block-spacing)
@@ -193,9 +197,9 @@ METADATA, PATTERNS, and ALWAYS come from the server request payload."
             (append opencode-session-pending-permission
                     (list (list :id permission-id
                                 :session-id session-id
-                                :type type
+                                :type action
                                 :title title
-                                :always always
+                                :always save
                                 :marker marker))))
       (if (opencode--buffer-active-p buffer)
           (run-at-time 0 nil #'opencode-respond-permission)
@@ -206,24 +210,52 @@ METADATA, PATTERNS, and ALWAYS come from the server request payload."
             session
           (push session opencode-alerted-sessions))))))
 
-(defun opencode--permission-request (permission-id session-id type metadata patterns always)
-  "Queue a permission request for SESSION-ID and output it to the session buffer.
-PERMISSION-ID identifies the request.  TYPE is the permission kind
-\(e.g. \"bash\").  METADATA is an alist of extra fields from the server.
-PATTERNS is a list of glob/path patterns.  ALWAYS is a list of patterns
-that would be permanently approved.
+(defun opencode--permission-request (data)
+  "Queue a permission.asked event DATA and output it to the session buffer.
+DATA is a V2 Permission.Request alist: id, sessionID, action, resources,
+save, source, and an optional metadata.
 A marker is saved so the response label can be appended to the same line.
 If the session buffer is active, the response prompt is shown immediately.
 Otherwise the session is opened so the request has somewhere to remain pending."
-  (if-let (buffer (gethash session-id opencode-session-buffers))
-      (opencode--permission-queue-request buffer permission-id session-id
-                                          type metadata patterns always)
-    (opencode-api-session (session-id)
-        session
-      (opencode-open-session session)
-      (when-let (buffer (gethash session-id opencode-session-buffers))
-        (opencode--permission-queue-request buffer permission-id session-id
-                                            type metadata patterns always)))))
+  (let-alist data
+    (let ((resources (seq-into .resources 'list))
+          (save (seq-into .save 'list)))
+      (if-let (buffer (gethash .sessionID opencode-session-buffers))
+          (opencode--permission-queue-request buffer .id .sessionID
+                                              .action resources save .metadata)
+        (opencode-api-session (.sessionID)
+            session
+          (opencode-open-session session)
+          (when-let (buffer (gethash .sessionID opencode-session-buffers))
+            (opencode--permission-queue-request buffer .id .sessionID
+                                                .action resources save .metadata)))))))
+
+(defun opencode--permission-settled (data)
+  "Clear pending state for a permission.replied/permission.rejected event DATA.
+Removes the matching entry from the owning session buffer's pending queue
+and appends a result label to its original output line.  A no-op when the
+request is not pending here, e.g. it was already answered from this client."
+  (let-alist data
+    (let ((request-id (or .requestID .id))
+          (choice (or .reply "reject")))
+      (when-let (buffer (gethash .sessionID opencode-session-buffers))
+        (with-current-buffer buffer
+          (when-let (perm (seq-find (lambda (p) (equal (plist-get p :id) request-id))
+                                    opencode-session-pending-permission))
+            (setq opencode-session-pending-permission
+                  (delq perm opencode-session-pending-permission))
+            (when-let (marker (plist-get perm :marker))
+              (when (marker-buffer marker)
+                (let ((label (pcase choice
+                               ("once"   (propertize " [accepted]"        'face 'success))
+                               ("always" (propertize " [accepted always]" 'face 'success))
+                               ("reject" (propertize " [denied]"          'face 'error))
+                               (_        (propertize " [settled]"        'face 'shadow))))
+                      (inhibit-read-only t))
+                  (save-excursion
+                    (goto-char marker)
+                    (insert label))
+                  (set-marker marker nil))))))))))
 
 (defun opencode--send-permission-response (choice)
   "Send CHOICE as the response to the next pending permission request.
@@ -250,11 +282,12 @@ label to the original output line via its saved marker."
         (set-marker marker nil)))
     (when opencode-session-pending-permission
       (run-at-time 0 nil #'opencode-respond-permission))
-    (opencode-api-respond-permission-request (session-id permission-id)
-        `((response . ,choice))
-        response
-      (unless response
-        (user-error "Response to permission request failed")))))
+    ;; The reply endpoint returns 204 No Content on success; errors are
+    ;; surfaced by the api macro's :else handler, so nothing more to check.
+    (opencode-api-reply-permission (session-id permission-id)
+        `((decision . ,choice))
+        _response
+      nil)))
 
 (defun opencode-respond-permission ()
   "Respond to the next pending permission request using a transient popup."

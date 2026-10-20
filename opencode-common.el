@@ -36,8 +36,8 @@
 (defvar opencode-last-session-buffer nil
   "Last active opencode session buffer.")
 
-(defvar opencode-providers nil
-  "List of available providers and models.")
+(defvar opencode-models nil
+  "List of available models, filtered to enabled ones.")
 
 (defvar opencode-part-type (make-hash-table :test 'equal)
   "Mapping of part id's to their type.")
@@ -60,16 +60,6 @@
 It receives a single argument, PROPERTIES, which is an alist with string keys
 for title, message, variant (error/warning/info/success), and duration"
   :type 'function
-  :group 'opencode)
-
-(defcustom opencode-server-username "opencode"
-  "Username to connect to opencode server."
-  :type 'string
-  :group 'opencode)
-
-(defcustom opencode-server-password nil
-  "Password to connect to opencode server."
-  :type 'string
   :group 'opencode)
 
 (defcustom opencode-show-tool-output nil

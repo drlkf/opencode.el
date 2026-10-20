@@ -7,7 +7,7 @@
 (defmacro with-opencode-session-test-buffer (&rest body)
   "Run BODY in a temporary `opencode-session-mode' buffer.
 BODY can refer to the buffer's process as `process'.  The default directory
-is the opencode source directory, and session state is bound so that parts
+is the opencode source directory, and session state is bound so that events
 for session \"session\" and assistant message \"message\" render here."
   (declare (indent 0) (debug t))
   `(with-temp-buffer
@@ -16,8 +16,8 @@ for session \"session\" and assistant message \"message\" render here."
      (opencode-session-mode)
      (let ((process (start-process "opencode-test" (current-buffer) nil))
            (opencode-session-buffers (make-hash-table :test 'equal))
-           (opencode-part-type (make-hash-table :test 'equal))
-           (opencode-assistant-messages (list (cons "message" nil))))
+           (opencode--tool-calls-displayed (make-hash-table :test 'equal))
+           (opencode--tool-call-info (make-hash-table :test 'equal)))
        (puthash "session" (current-buffer) opencode-session-buffers)
        (unwind-protect
            (progn ,@body)
@@ -29,7 +29,7 @@ for session \"session\" and assistant message \"message\" render here."
                           (locate-library "opencode-sessions")))
          (default-directory file-directory)
          (formatted (opencode--format-tool-call
-                     "read" '((filePath . "opencode-sessions.el")
+                     "read" '((path . "opencode-sessions.el")
                               (offset . 440)
                               (limit . 35)))))
     (with-temp-buffer
@@ -52,7 +52,7 @@ for session \"session\" and assistant message \"message\" render here."
     (opencode--output "# Heading\n\nSee `opencode-sessions")
     (opencode--output ".el` and *emphasis*.\n\n")
     (opencode--insert-tool-block
-     "edit" '((filePath . "opencode-sessions.el")
+     "edit" '((path . "opencode-sessions.el")
               (oldString . "old") (newString . "new")))
     (opencode--output "**Testing button behavior**\n\n")
     (opencode--insert-block-with-margin
@@ -159,26 +159,35 @@ for session \"session\" and assistant message \"message\" render here."
     (opencode-yank-code-block)
     (should (equal (current-kill 0 t) "```\ntext\n"))))
 
+(defun opencode-sessions-test--text-delta (delta)
+  "Return a session.text.delta event DATA alist streaming DELTA."
+  `((sessionID . "session") (assistantMessageID . "message") (ordinal . 0)
+    (delta . ,delta)))
+
 (ert-deftest opencode-session-completed-tables-test ()
   "Align completed streamed tables once without disturbing pending input."
   (with-opencode-session-test-buffer
-    (let ((part '((sessionID . "session") (messageID . "message") (text . "")))
-          (align (symbol-function 'opencode--align-output-table))
+    (let ((align (symbol-function 'opencode--align-output-table))
           (calls 0))
       (cl-letf (((symbol-function 'opencode--align-output-table)
                  (lambda (beg end)
                    (cl-incf calls)
                    (funcall align beg end))))
         (insert "pending input")
-        (opencode-session--update-part "text" part "| File | Value |\n" "text")
-        (opencode-session--update-part "text" part "| :--- | ---: |\n" "text")
-        (opencode-session--update-part
-         "text" part "| `opencode-sessions.el` | 7 |\n" "text")
+        (opencode-session--handle-event
+         'session.text.delta (opencode-sessions-test--text-delta "| File | Value |\n"))
+        (opencode-session--handle-event
+         'session.text.delta (opencode-sessions-test--text-delta "| :--- | ---: |\n"))
+        (opencode-session--handle-event
+         'session.text.delta
+         (opencode-sessions-test--text-delta "| `opencode-sessions.el` | 7 |\n"))
         (should (= calls 0))
         ;; An incomplete following line cannot yet establish the boundary.
-        (opencode-session--update-part "text" part "# Following" "text")
+        (opencode-session--handle-event
+         'session.text.delta (opencode-sessions-test--text-delta "# Following"))
         (should (= calls 0))
-        (opencode-session--update-part "text" part " prose.\n" "text")
+        (opencode-session--handle-event
+         'session.text.delta (opencode-sessions-test--text-delta " prose.\n"))
         (should (= calls 1))
         (let ((output (buffer-substring-no-properties
                        (point-min) (process-mark process))))
@@ -195,22 +204,28 @@ for session \"session\" and assistant message \"message\" render here."
           (search-forward "7|")
           (should (eq (get-text-property (- (point) 3) 'field) 'output)))
         ;; A fenced table is code and must never be aligned.
-        (opencode-session--update-part
-         "text" part "\n```markdown\n| Code | Value |\n| --- | --- |\n| x | y |\n```\n\n"
-         "text")
+        (opencode-session--handle-event
+         'session.text.delta
+         (opencode-sessions-test--text-delta
+          "\n```markdown\n| Code | Value |\n| --- | --- |\n| x | y |\n```\n\n"))
         (should (= calls 1))
         ;; A blank line completes a table before the text part ends.
-        (opencode-session--update-part
-         "text" part "| Name | Value |\n| --- | --- |\n| x | y |\n\n" "text")
+        (opencode-session--handle-event
+         'session.text.delta
+         (opencode-sessions-test--text-delta "| Name | Value |\n| --- | --- |\n| x | y |\n\n"))
         (should (= calls 2))
-        (opencode-session--update-part "text" part "More prose.\n\n" "text")
+        (opencode-session--handle-event
+         'session.text.delta (opencode-sessions-test--text-delta "More prose.\n\n"))
         (should (= calls 2))
         ;; Flush a final table without a trailing newline on part completion.
-        (opencode-session--update-part
-         "text" part "| Last | Value |\n| --- | --- |\n| x | y |" "text")
+        (opencode-session--handle-event
+         'session.text.delta
+         (opencode-sessions-test--text-delta "| Last | Value |\n| --- | --- |\n| x | y |"))
         (should (= calls 2))
-        (opencode-session--update-part
-         "text" (append '((time . ((end . 1)))) part) nil "text")
+        (opencode-session--handle-event
+         'session.text.ended
+         '((sessionID . "session") (assistantMessageID . "message") (ordinal . 0)
+           (text . "")))
         (should (= calls 3))
         (should-not opencode--table-scan-marker)
         (should (eq (char-before (process-mark process)) ?|))
@@ -221,19 +236,24 @@ for session \"session\" and assistant message \"message\" render here."
 (ert-deftest opencode-session-reasoning-leading-newline-test ()
   "A streamed reasoning part starting with a newline adds no blank line or margin."
   (with-opencode-session-test-buffer
-    (let ((part '((sessionID . "session") (messageID . "message") (text . ""))))
-      (opencode--output "request\n\n")
-      (opencode-session--update-part "reasoning" part nil "reasoning")
-      (opencode-session--update-part "reasoning" part "\n" "reasoning")
-      (opencode-session--update-part "reasoning" part "Thinking" "reasoning")
-      (should (equal (buffer-substring-no-properties
-                      (point-min) (process-mark process))
-                     "request\n\nThinking"))
-      (dolist (pos (number-sequence (point-min) (+ (point-min) 8)))
-        (should-not (seq-some (lambda (ov) (overlay-get ov 'line-prefix))
-                              (overlays-at pos))))
-      (should (seq-some (lambda (ov) (overlay-get ov 'line-prefix))
-                        (overlays-at (+ (point-min) 9)))))))
+    (opencode--output "request\n\n")
+    (opencode-session--handle-event
+     'session.reasoning.started
+     '((sessionID . "session") (assistantMessageID . "message") (ordinal . 0)))
+    (opencode-session--handle-event
+     'session.reasoning.delta
+     '((sessionID . "session") (assistantMessageID . "message") (ordinal . 0) (delta . "\n")))
+    (opencode-session--handle-event
+     'session.reasoning.delta
+     '((sessionID . "session") (assistantMessageID . "message") (ordinal . 0) (delta . "Thinking")))
+    (should (equal (buffer-substring-no-properties
+                    (point-min) (process-mark process))
+                   "request\n\nThinking"))
+    (dolist (pos (number-sequence (point-min) (+ (point-min) 8)))
+      (should-not (seq-some (lambda (ov) (overlay-get ov 'line-prefix))
+                            (overlays-at pos))))
+    (should (seq-some (lambda (ov) (overlay-get ov 'line-prefix))
+                      (overlays-at (+ (point-min) 9))))))
 
 (ert-deftest opencode-session-table-alignment-context-test ()
   "Table alignment must not schedule a context mode in the session buffer."
@@ -261,18 +281,18 @@ for session \"session\" and assistant message \"message\" render here."
     (let* ((table "| Name | Value |\n| --- | ---: |\n| x | y |")
            (fenced (concat "```markdown\n" table "\n```"))
            (messages
-            `(((info . ((role . "user")))
-               (parts . (((type . "text") (text . ,table)))))
-              ((info . ((role . "assistant")
-                        (tokens . ((input . 0) (output . 0) (reasoning . 0)
-                                   (cache . ((read . 0) (write . 0)))))))
-               (parts . (((type . "text") (text . ,table))
-                         ((type . "text") (text . ,fenced))))))))
+            `(((type . "user") (id . "u1") (text . ,table))
+              ((type . "assistant") (id . "a1") (agent . "orchestrator")
+               (model . ((id . "m") (providerID . "p")))
+               (tokens . ((input . 0) (output . 0) (reasoning . 0)
+                          (cache . ((read . 0) (write . 0)))))
+               (content . (((type . "text") (text . ,table))
+                           ((type . "text") (text . ,fenced))))))))
       ;; Capture the request separately to verify it reaches the user
       ;; renderer without going through the table alignment path.
       (cl-letf (((symbol-function 'opencode--replay-user-request)
                  (lambda (message)
-                   (opencode--output (alist-get 'text (car (alist-get 'parts message))))
+                   (opencode--output (alist-get 'text message))
                    (opencode--output "\n\n"))))
         (opencode--replay-session-messages messages))
       (let ((output (buffer-substring-no-properties (point-min) (point-max))))

@@ -138,7 +138,7 @@ KIND is \\='text or \\='reasoning; KEY is (ASSISTANT-MESSAGE-ID . ORDINAL).
 Used to detect new blocks for spacing, margins, and table-scan setup.")
 
 (defvar-local opencode-session--synced-agent nil
-  "Name of the agent most recently confirmed set on the server for this session.")
+  "Id of the agent most recently confirmed set on the server for this session.")
 
 (defvar-local opencode-session--synced-model nil
   "Model.Ref most recently confirmed set on the server for this session.")
@@ -154,12 +154,12 @@ Used to detect new blocks for spacing, margins, and table-scan setup.")
 (defun opencode-cycle-session-agent ()
   "Switch to the next agent in `opencode-session-agents'."
   (interactive)
-  (let* ((name (alist-get 'name opencode-session-agent))
+  (let* ((id (alist-get 'id opencode-session-agent))
          (agents opencode-session-agents)
-         (pos (and name (cl-position-if
-                         (lambda (agent)
-                           (string= name (alist-get 'name agent)))
-                         agents))))
+         (pos (and id (cl-position-if
+                       (lambda (agent)
+                         (equal id (alist-get 'id agent)))
+                       agents))))
     (when pos
       (setcar (nthcdr pos agents) opencode-session-agent)
       (when-let ((next (seq-find
@@ -262,10 +262,11 @@ alist of (id . model-id) (providerID . provider-id)."
 
 (defun opencode--current-model ()
   "Return the active Model.Info for this session's agent."
-  (let-alist opencode-session-agent
+  (when-let ((id (map-nested-elt opencode-session-agent '(model id))))
     (seq-find (lambda (model)
-                (and (equal .model.id (alist-get 'id model))
-                     (equal .model.providerID (alist-get 'providerID model))))
+                (and (equal id (alist-get 'id model))
+                     (equal (map-nested-elt opencode-session-agent '(model providerID))
+                            (alist-get 'providerID model))))
               opencode-models)))
 
 (defun opencode-select-variant ()
@@ -325,19 +326,22 @@ alist of (id . model-id) (providerID . provider-id)."
                     ("Planner-Sisyphus" "Planner")
                     (name name)))
            (model (opencode--current-model))
+           (variant (map-nested-elt opencode-session-agent '(model variant)))
            (status (pcase opencode-session-status
                      ("busy" "⏳")
                      ("idle" "🚀")
                      (_ "")))
-           (context-used (* 100 (/ (float opencode-session-tokens)
-                                   (map-nested-elt model '(limit context))))))
+           (context-limit (map-nested-elt model '(limit context)))
+           (context-used (if context-limit
+                             (* 100 (/ (float opencode-session-tokens) context-limit))
+                           0)))
       (if (< (window-width) 115)
           (format "[🤖 %s] %.0f%%%% %s  " agent context-used status)
         (format "[🤖 %s - %s] %.0f%%%% %s  "
                 agent
                 (concat (alist-get 'name model)
-                        (when .model.variant
-                          (propertize (format " %s" .model.variant)
+                        (when variant
+                          (propertize (format " %s" variant)
                                       'face '(bold opencode-request-margin-highlight))))
                 context-used status)))))
 
@@ -645,19 +649,20 @@ Otherwise prompt for file in current project."
 call CALLBACK with no arguments."
   (let-alist opencode-session-agent
     (cl-flet ((sync-model ()
-                (if (equal opencode-session--synced-model .model)
+                (if (or (opencode--json-falsy .model)
+                        (equal opencode-session--synced-model .model))
                     (funcall callback)
                   (opencode-api-set-session-model (opencode-session-id)
                       `((model . ,.model))
                       _response
                     (setq opencode-session--synced-model .model)
                     (funcall callback)))))
-      (if (equal opencode-session--synced-agent .name)
+      (if (equal opencode-session--synced-agent .id)
           (sync-model)
         (opencode-api-set-session-agent (opencode-session-id)
-            `((agent . ,.name))
+            `((agent . ,.id))
             _response
-          (setq opencode-session--synced-agent .name)
+          (setq opencode-session--synced-agent .id)
           (sync-model))))))
 
 (defun opencode-session--prompt-fields (text extra-parts)
@@ -1053,7 +1058,7 @@ Also marks that agent/model as already synced with the server, so the next
 send does not needlessly re-select them."
   (let-alist message
     (when-let ((agent (seq-find (lambda (agent)
-                                  (string= (alist-get 'name agent) .agent))
+                                  (equal (alist-get 'id agent) .agent))
                                 opencode-session-agents)))
       (setq opencode-session-agent agent)
       (setf (alist-get 'model opencode-session-agent) .model)
@@ -1218,7 +1223,7 @@ If CALLBACK is given, it is called with the session once initialized."
                   opencode--tool-calls-displayed (make-hash-table :test 'equal)
                   opencode--tool-call-info (make-hash-table :test 'equal)
                   opencode-session-agents (mapcar (lambda (agent)
-                                                    (unless (or (alist-get 'model agent)
+                                                    (unless (or (not (opencode--json-falsy (alist-get 'model agent)))
                                                                 ;; savehist may hold a V1 ref
                                                                 (not (alist-get 'id opencode-last-model)))
                                                       (setf (alist-get 'model agent)

@@ -287,5 +287,35 @@ for session \"session\" and assistant message \"message\" render here."
       (should-not opencode--table-scan-marker)
       (should (= (process-mark process) (point-max))))))
 
+(ert-deftest opencode-session-agent-sync-by-id-test ()
+  "Treat JSON false/null as falsy, sync agents by id, and skip null models."
+  (dolist (value '(nil :null :false 0))
+    (should (opencode--json-falsy value)))
+  (should-not (opencode--json-falsy t))
+  (let* ((plan '((id . "plan") (name . "Plan") (mode . "primary")
+                 (hidden . :false) (model . :null)))
+         (build '((id . "build") (name . "Build") (mode . "primary")
+                  (hidden . :false) (model . :null)))
+         (opencode-api-url "http://opencode.test")
+         requests)
+    (cl-letf (((symbol-function 'plz)
+               (lambda (_method url &rest args)
+                 (push (cons url (plist-get args :body)) requests)
+                 (funcall (plist-get args :then) nil))))
+      (with-temp-buffer
+        (setq opencode-session-id "ses_test"
+              opencode-session-agents (list (copy-tree plan) (copy-tree build))
+              opencode-session-agent (car opencode-session-agents))
+        (opencode-cycle-session-agent)
+        (should (equal "build" (alist-get 'id opencode-session-agent)))
+        (opencode-session--sync-agent-and-model #'ignore)
+        (should (equal requests
+                       '(("http://opencode.test/api/session/ses_test/agent"
+                          . "{\"agent\":\"build\"}"))))
+        (opencode-session--sync-agent-from-message
+         '((agent . "plan") (model . ((id . "m") (providerID . "p")))))
+        (should (equal "plan" (alist-get 'id opencode-session-agent)))
+        (should (equal "plan" opencode-session--synced-agent))))))
+
 (provide 'opencode-sessions-test)
 ;;; opencode-sessions-test.el ends here

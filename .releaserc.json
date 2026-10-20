@@ -1,12 +1,13 @@
 {
   "branches": ["main"],
+  "tagFormat": "${version}",
   "plugins": [
     "@semantic-release/commit-analyzer",
     "@semantic-release/release-notes-generator",
     [
       "@semantic-release/exec",
       {
-        "prepareCmd": "sed -i 's/^;; Package-Version: .*/;; Package-Version: ${nextRelease.version}/' opencode.el"
+        "prepareCmd": "sed -i 's/^;; Package-Version: .*/;; Package-Version: ${nextRelease.version}/' opencode.el && ./build-package.sh ${nextRelease.version}"
       }
     ],
     [
@@ -16,6 +17,17 @@
         "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
       }
     ],
-    "@semantic-release/github"
+    [
+      "@semantic-release/github",
+      {
+        "assets": [
+          {
+            "path": "dist/opencode-*.tar",
+            "name": "opencode-${nextRelease.version}.tar",
+            "label": "Emacs package (M-x package-install-file)"
+          }
+        ]
+      }
+    ]
   ]
 }

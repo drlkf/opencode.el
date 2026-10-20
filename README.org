@@ -41,7 +41,7 @@ of advantages over the official TUI:
      =safe-local-variable-directories= and then create a =.dir-locals.el= in the
      project directory with:
      #+begin_src elisp
-((nil . ((opencode-project-files-finished-editing-functions . (opencode-uv-pytest)))))
+       ((nil . ((opencode-project-files-finished-editing-functions . (opencode-uv-pytest)))))
      #+end_src
    - add any emacs buffer to chat context with =opencode-add-buffer-dwim=
    - add files from dired to context with =opencode-add-file-dwim=
@@ -60,29 +60,32 @@ of advantages over the official TUI:
 When this package is a bit more stable I'll package it on MELPA, for now install
 from git. This package requires Emacs 30.1, [[https://jblevins.org/projects/markdown-mode/][markdown-mode]], plus [[https://github.com/magit/magit][magit]], [[https://github.com/alphapapa/plz.el][plz]], [[https://github.com/r0man/plz-media-type][plz-media-type]],
 and a bugfix branch of [[https://github.com/sczi/plz-event-source/tree/long-lines-fix][plz-event-source]].
+** From a release tarball
+Download =opencode-<version>.tar= from the [[https://github.com/drlkf/opencode.el/releases][releases]] page, install the
+dependencies above, then run =M-x package-install-file= on the tarball.
 ** Manual
 
 Clone this repository and add it to your load path.
 
 #+BEGIN_SRC emacs-lisp
-(add-to-list 'load-path "/path/to/opencode.el")
-(require 'opencode)
+  (add-to-list 'load-path "/path/to/opencode.el")
+  (require 'opencode)
 #+END_SRC
 ** With straight.el
 #+begin_src emacs-lisp
-(use-package opencode
-  :straight (opencode :type git :host codeberg :repo "sczi/opencode.el"))
+  (use-package opencode
+    :straight (opencode :type git :host codeberg :repo "sczi/opencode.el"))
 #+end_src
 ** Emacs use-package
 #+begin_src emacs-lisp
-(use-package opencode 
-  :vc (:url "https://codeberg.org/sczi/opencode.el.git" :rev :newest))
+  (use-package opencode 
+    :vc (:url "https://codeberg.org/sczi/opencode.el.git" :rev :newest))
 #+end_src
 ** In Doom Emacs
 add to =packages.el= and run =doom sync=
 #+begin_src emacs-lisp
-(package! opencode
-  :recipe (:host codeberg :repo "sczi/opencode.el"))
+  (package! opencode
+            :recipe (:host codeberg :repo "sczi/opencode.el"))
 #+end_src
 
 * Connecting
@@ -169,13 +172,13 @@ If a session buffer and frame is not active, emacs will show a notification when
 
 * Commands
 #+begin_src emacs-lisp :results table :colnames '("Command" "Description") :exports results
-(cl-loop for command in '(opencode opencode-connect opencode-disconnect
-                          opencode-select-project opencode-select-open-session
-                          opencode-new-worktree opencode-new-session
-                          opencode-select-idle opencode-visit-last-idle
-                          opencode-add-file-dwim opencode-add-region opencode-add-buffer-dwim)
-         collect (list command
-                       (string-join (string-lines (documentation command)) " ")))
+  (cl-loop for command in '(opencode opencode-connect opencode-disconnect
+                                     opencode-select-project opencode-select-open-session
+                                     opencode-new-worktree opencode-new-session
+                                     opencode-select-idle opencode-visit-last-idle
+                                     opencode-add-file-dwim opencode-add-region opencode-add-buffer-dwim)
+           collect (list command
+                         (string-join (string-lines (documentation command)) " ")))
 #+end_src
 
 #+RESULTS:

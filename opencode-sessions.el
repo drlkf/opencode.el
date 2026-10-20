@@ -377,14 +377,11 @@ alist of (id . model-id) (providerID . provider-id)."
                 nil nil nil nil
                 (font-lock-multiline . t)
                 (font-lock-syntactic-face-function . markdown-syntactic-face)
+                ;; Unlike markdown-mode, leave rear-nonsticky (comint's
+                ;; read-only prompt) and help-echo (file buttons) alone.
                 (font-lock-extra-managed-props
-                 . (composition display invisible rear-nonsticky
-                    keymap help-echo mouse-face))))
+                 . (composition display invisible keymap mouse-face))))
   (add-to-invisibility-spec 'markdown-markup)
-  ;; File-reference buttons are created by comint output, not font-lock.
-  (setq-local font-lock-extra-managed-props
-              (cl-set-difference font-lock-extra-managed-props
-                                 '(button category action help-echo)))
   (visual-line-mode)
   (cursor-intangible-mode)
   (yank-media-handler "\\`image/" #'opencode--yank-image))
@@ -426,9 +423,7 @@ in webchat."
   (interactive)
   (opencode-api-delete-session ((or (alist-get 'id session)
                                     opencode-session-id))
-      result
-    (unless result
-      (error "Unable to delete session"))
+      _result
     ;; if called from session control buffer, don't kill buffer
     ;; but if called from a session buffer then kill this buffer
     (unless session
@@ -774,7 +769,7 @@ text changes so session properties and markers survive on unchanged text."
         (text (buffer-substring-no-properties beg end))
         (output-properties
          (cl-loop for property in '(field read-only insert-in-front-hooks
-                                    inhibit-line-move-field-capture front-sticky)
+                                          inhibit-line-move-field-capture front-sticky)
                   for value = (get-text-property beg property)
                   when value append (list property value)))
         (inhibit-read-only t))
@@ -875,6 +870,8 @@ Retain one line of context for headers whose delimiter has yet to arrive."
   (let ((start (opencode--session-process-position)))
     (opencode--output "> ")
     (let ((ov (make-overlay start (opencode--session-process-position))))
+      ;; Override markdown-mode's blockquote `display', which beats `invisible'.
+      (overlay-put ov 'display "")
       (overlay-put ov 'invisible t)))
   (opencode--add-margin (car comint-last-prompt)
                         (cdr comint-last-prompt)
@@ -1210,7 +1207,7 @@ If CALLBACK is given, it is called with the session once initialized."
           (if pop-to-buffer
               (pop-to-buffer old-buffer)
             (switch-to-buffer old-buffer))
-        (let ((buffer (generate-new-buffer (format "*OpenCode: %s*" .title)))
+        (let ((buffer (generate-new-buffer (format "*OpenCode: %s*" (or .title "New session"))))
               (agent (copy-tree opencode-session-agent))
               (agents (copy-tree opencode-session-agents)))
           (with-current-buffer buffer
@@ -1376,11 +1373,11 @@ bound to the exchange ids at point."
            :columns '("Title"
                       (:name "Branch" :min-width 6)
                       (:name "Last Updated" :width 12
-                       :formatter opencode--format-time-ago
-                       :primary ascend)
+                             :formatter opencode--format-time-ago
+                             :primary ascend)
                       (:name "Files changed" :width 13 :align right)
                       (:name "Created at" :width 10
-                       :formatter opencode--format-time-ago))
+                             :formatter opencode--format-time-ago))
            :objects sessions
            :actions '("x" opencode-kill-session
                       "R" opencode-rename-session

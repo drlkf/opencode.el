@@ -152,7 +152,7 @@
   (opencode-question--toggle-option
    (oref (transient-suffix-object) option-index))
   (unless opencode-question--multiple
-    (opencode-question--do-confirm)))
+    (call-interactively #'opencode-question--do-confirm)))
 
 (transient-define-suffix opencode-question--do-custom ()
   "Type a custom answer."
@@ -168,7 +168,7 @@
         ;; Single-select: clear all option marks
         (dotimes (i (length opencode-question--marked))
           (aset opencode-question--marked i nil))
-        (opencode-question--do-confirm)))))
+        (call-interactively #'opencode-question--do-confirm)))))
 
 (defun opencode-question--confirm-pre-command ()
   "Pre-command function for confirm: exit if selection is non-empty, else stay."
@@ -214,7 +214,7 @@
 ;;; Transient exit hook
 
 (defun opencode-question--on-exit ()
-  "Handle transient exit by cancelling the form if not already confirmed or rejected."
+  "Handle transient exit by cancelling the form unless confirmed or rejected."
   (remove-hook 'transient-exit-hook #'opencode-question--on-exit)
   (unless opencode-question--handled
     (opencode-api-cancel-form (opencode-question--session-id
@@ -277,7 +277,7 @@ _CHILDREN is the statically-defined children, which are ignored."
         (aset opencode-question--descriptions i (alist-get 'description opt))
         (aset opencode-question--values i (alist-get 'value opt))))
     (add-hook 'transient-exit-hook #'opencode-question--on-exit)
-    (opencode-question--transient)))
+    (call-interactively #'opencode-question--transient)))
 
 (defun opencode-question--prompt (form-id session-id questions)
   "Prompt user to answer QUESTIONS from form FORM-ID on SESSION-ID.

@@ -423,9 +423,9 @@ Covers session.created/updated/renamed/deleted/moved/forked/archived."
   "Handle execution-finished event of TYPE-STRING for SESSION-ID with DATA."
   (unless (opencode--defer-files-finished-editing-hook session-id)
     (opencode--maybe-run-files-finished-editing-hook session-id))
-  (opencode-api-session (session-id)
-      session
-    (opencode--with-session-buffer session-id
+  (opencode--with-session-buffer session-id
+    (opencode-api-session (session-id)
+        session
       (opencode--show-prompt)
       (unless (or (opencode--buffer-active-p (current-buffer))
                   ;; don't show alert for subagent sessions

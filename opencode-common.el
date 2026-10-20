@@ -116,9 +116,9 @@ Returns \"-\" if SECONDS is nil."
     "-"))
 
 (defun opencode--json-falsy (value)
-  "Return t if VALUE is null, :null, or 0."
+  "Return t if VALUE is null, :null, :false, or 0."
   (cl-case value
-    ((nil :null 0) t)
+    ((nil :null :false 0) t)
     (t nil)))
 
 (defun opencode--truncate-at-max-lines (max-lines)

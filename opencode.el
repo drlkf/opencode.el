@@ -398,7 +398,7 @@ Also prompts for pending questions or permissions if any."
 (defun opencode--handle-session-lifecycle-event (type-string data)
   "Handle session lifecycle event of TYPE-STRING with DATA.
 Covers session.created/updated/renamed/deleted/moved/forked/archived."
-  (let ((session-id (alist-get 'id data))
+  (let ((session-id (or (alist-get 'id data) (alist-get 'sessionID data)))
         (project-id (alist-get 'projectID data)))
     (when (equal type-string "session.deleted")
       (run-hook-with-args 'opencode-session-deleted-functions session-id))

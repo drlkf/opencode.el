@@ -76,8 +76,8 @@ This is an abnormal hook. Each function receives one argument, SESSION-ID."
     (ignore-errors
       (plz 'get (concat url "/api/info")
         :headers (list (cons "Authorization"
-                              (concat "Basic "
-                                      (base64-encode-string (concat "opencode:" password)))))
+                             (concat "Basic "
+                                     (base64-encode-string (concat "opencode:" password)))))
         :timeout 2)
       t)))
 
@@ -414,8 +414,11 @@ Covers session.created/updated/renamed/deleted/moved/forked/archived."
               (opencode-sessions-redisplay))))))
     (opencode--with-session-buffer session-id
       (cond
-       ((equal type-string "session.renamed")
-        (rename-buffer (format "*OpenCode: %s*" (alist-get 'title data)) t))
+       ((and (member type-string '("session.renamed" "session.updated"))
+             (alist-get 'title data))
+        (let ((name (format "*OpenCode: %s*" (alist-get 'title data))))
+          (unless (string-prefix-p name (buffer-name))
+            (rename-buffer name t))))
        ((equal type-string "session.deleted")
         (delete-process))))))
 
@@ -446,13 +449,13 @@ Covers session.created/updated/renamed/deleted/moved/forked/archived."
   (let ((session-id (alist-get 'sessionID data)))
     (cond
      ((member type-string '("session.created" "session.updated" "session.renamed"
-                             "session.deleted" "session.moved" "session.forked"
-                             "session.archived"))
+                            "session.deleted" "session.moved" "session.forked"
+                            "session.archived"))
       (opencode--handle-session-lifecycle-event type-string data))
      ((equal type-string "session.execution.started")
       (opencode-session--set-status session-id "busy"))
      ((member type-string '("session.execution.succeeded" "session.execution.failed"
-                             "session.execution.interrupted"))
+                            "session.execution.interrupted"))
       (opencode--handle-session-execution-finished-event type-string session-id data))
      ((equal type-string "session.error")
       (opencode-session--display-error

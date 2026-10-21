@@ -137,6 +137,9 @@ Requests are processed FIFO.")
 KIND is \\='text or \\='reasoning; KEY is (ASSISTANT-MESSAGE-ID . ORDINAL).
 Used to detect new blocks for spacing, margins, and table-scan setup.")
 
+(defvar-local opencode-session--prompt nil
+  "Markers (START . END) of the prompt displayed last.")
+
 (defvar-local opencode-session--synced-agent nil
   "Id of the agent most recently confirmed set on the server for this session.")
 
@@ -877,10 +880,40 @@ Retain one line of context for headers whose delimiter has yet to arrive."
     (let ((ov (make-overlay start (opencode--session-process-position))))
       ;; Override markdown-mode's blockquote `display', which beats `invisible'.
       (overlay-put ov 'display "")
-      (overlay-put ov 'invisible t)))
+      (overlay-put ov 'invisible t))
+    (setq opencode-session--prompt
+          (cons (copy-marker start) (copy-marker (opencode--session-process-position)))))
   (opencode--add-margin (car comint-last-prompt)
                         (cdr comint-last-prompt)
                         'opencode-request-margin-highlight))
+
+(defun opencode-session--call-before-prompt (fn)
+  "Call FN so its output lands before the prompt displayed last, if any.
+Stream events can arrive after the prompt was shown; remove the prompt, call
+FN, then show the prompt again with the pending input and point preserved."
+  (let ((proc (get-buffer-process (current-buffer)))
+        (prompt opencode-session--prompt))
+    (if (not (and proc prompt (= (process-mark proc) (cdr prompt))))
+        (funcall fn)
+      (let ((input (buffer-substring (cdr prompt) (point-max)))
+            (offset (- (point) (cdr prompt)))
+            (pt (copy-marker (point)))
+            (start (marker-position (car prompt))))
+        (let ((inhibit-read-only t))
+          (remove-overlays start (point-max))
+          (delete-region start (point-max)))
+        (set-marker (process-mark proc) start)
+        (setq opencode-session--prompt nil)
+        (unwind-protect
+            (funcall fn)
+          (unless (= start (process-mark proc))
+            (opencode--maybe-insert-block-spacing))
+          (opencode--show-prompt)
+          (save-excursion
+            (goto-char (point-max))
+            (insert input))
+          (goto-char (if (>= offset 0) (+ (process-mark proc) offset) pt))
+          (set-marker pt nil))))))
 
 (defun opencode-session--stream-delta (session-id kind key delta)
   "Stream DELTA text of KIND (\\='text or \\='reasoning) for block KEY.
@@ -974,6 +1007,13 @@ TYPE is the event's dotted symbol (e.g. \\='session.text.delta); DATA is its
 alist payload.  Handles everything not already intercepted by opencode.el's
 dispatch: streaming text/reasoning/tool rendering, usage updates, and
 files-edited tracking."
+  (let-alist data
+    (opencode--with-session-buffer .sessionID
+      (opencode-session--call-before-prompt
+       (lambda () (opencode-session--dispatch-event type data))))))
+
+(defun opencode-session--dispatch-event (type data)
+  "Render streaming session event TYPE with DATA."
   (let-alist data
     (pcase type
       ('session.text.delta

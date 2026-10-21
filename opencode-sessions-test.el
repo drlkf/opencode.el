@@ -253,6 +253,31 @@ for session \"session\" and assistant message \"message\" render here."
     (should (seq-some (lambda (ov) (overlay-get ov 'line-prefix))
                       (overlays-at (+ (point-min) 9))))))
 
+(ert-deftest opencode-session-late-event-before-prompt-test ()
+  "Events arriving after the prompt is shown render before it, keeping input."
+  (with-opencode-session-test-buffer
+    (opencode--output "answer\n\n")
+    (opencode--show-prompt)
+    (insert "pending")
+    (backward-char 2)
+    (opencode-session--handle-event
+     'session.usage.updated
+     '((sessionID . "session")
+       (tokens . ((input . 1) (output . 0) (reasoning . 0)
+                  (cache . ((read . 0) (write . 0)))))))
+    (should (equal (buffer-substring-no-properties (point-min) (point-max))
+                   "answer\n\n> pending"))
+    (opencode-session--handle-event
+     'session.reasoning.ended
+     '((sessionID . "session") (assistantMessageID . "message") (ordinal . 0)
+       (text . "late thought")))
+    (should (equal (buffer-substring-no-properties (point-min) (point-max))
+                   "answer\n\nlate thought\n\n> pending"))
+    (should (equal (buffer-substring-no-properties
+                    (process-mark process) (point-max))
+                   "pending"))
+    (should (= (point) (- (point-max) 2)))))
+
 (ert-deftest opencode-session-table-alignment-context-test ()
   "Table alignment must not disturb the session buffer's comint keymap."
   (with-opencode-session-test-buffer

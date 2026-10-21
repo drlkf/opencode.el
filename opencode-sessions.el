@@ -918,9 +918,10 @@ Retain one line of context for headers whose delimiter has yet to arrive."
   (let ((start (opencode--session-process-position)))
     (opencode--output "> ")
     (let ((ov (make-overlay start (opencode--session-process-position))))
-      ;; Override markdown-mode's blockquote `display', which beats `invisible'.
-      (overlay-put ov 'display "")
-      (overlay-put ov 'invisible t)))
+      ;; Override markdown-mode's blockquote `display'.  Not `invisible':
+      ;; line motion skips the then-empty prompt line, so `j' at the end
+      ;; of the buffer moves up a line.
+      (overlay-put ov 'display "")))
   (opencode--add-margin (car comint-last-prompt)
                         (cdr comint-last-prompt)
                         'opencode-request-margin-highlight))
@@ -1166,6 +1167,7 @@ send does not needlessly re-select them."
 
 (defun opencode--insert-tool-block (tool input)
   "Insert TOOL call with INPUT as margin-highlighted block."
+  (opencode--close-open-fence)
   (let ((start (opencode--session-process-position)))
     (opencode--insert-block-with-margin
      (opencode--format-tool-call tool input)

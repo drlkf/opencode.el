@@ -108,7 +108,7 @@ for session \"session\" and assistant message \"message\" render here."
                            (overlays-at (- (point) 2))))
       (goto-char (point-min))
       (search-forward "> ")
-      (should (get-char-property (- (point) 2) 'invisible)))))
+      (should (equal "" (get-char-property (- (point) 2) 'display))))))
 
 (ert-deftest opencode-session-input-deletion-at-end-test ()
   "Deleting at `point-max' in the prompt must not leave stale blockquote data."
@@ -146,6 +146,23 @@ for session \"session\" and assistant message \"message\" render here."
     (should-not (markdown-code-block-at-pos (1- (point))))
     (search-forward "ls\n````\n")
     (should-not (markdown-code-block-at-pos (1- (point-max))))))
+
+(ert-deftest opencode-session-unclosed-fence-before-tool-test ()
+  "Fences left open by reasoning must not swallow the following tool call."
+  (with-opencode-session-test-buffer
+    (font-lock-mode 1)
+    (opencode-session--handle-event
+     'session.reasoning.delta
+     '((sessionID . "session") (assistantMessageID . "message") (ordinal . 0)
+       (delta . "think\n```elisp\n(foo")))
+    (opencode-session--handle-event
+     'session.tool.input.started '((sessionID . "session") (id . "call") (name . "shell")))
+    (opencode-session--handle-event
+     'session.tool.called '((sessionID . "session") (id . "call") (input . ((command . "ls")))))
+    (font-lock-ensure)
+    (goto-char (point-min))
+    (search-forward "$ ls")
+    (should-not (markdown-code-block-at-pos (1- (point))))))
 
 (ert-deftest opencode-session-diff-refinement-test ()
   "Refine entire synthetic hunks without touching input or earlier output."

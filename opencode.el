@@ -4,7 +4,7 @@
 
 ;; Author: Scott Zimmermann <sczi@disroot.org>
 ;; Keywords: tools, llm, opencode
-;; Package-Version: 1.1.4
+;; Package-Version: 1.1.5
 ;; Package-Requires: ((emacs "30.1") (markdown-mode "2.6") (magit "4.0") (plz "0.9") (plz-media-type "0.2.4") (plz-event-source "0.1.3"))
 ;; URL: https://codeberg.org/sczi/opencode.el/
 

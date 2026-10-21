@@ -137,9 +137,6 @@ Requests are processed FIFO.")
 KIND is \\='text or \\='reasoning; KEY is (ASSISTANT-MESSAGE-ID . ORDINAL).
 Used to detect new blocks for spacing, margins, and table-scan setup.")
 
-(defvar-local opencode-session--prompt nil
-  "Markers (START . END) of the prompt displayed last.")
-
 (defvar-local opencode-session--synced-agent nil
   "Id of the agent most recently confirmed set on the server for this session.")
 
@@ -360,6 +357,26 @@ alist of (id . model-id) (providerID . provider-id)."
     (prog1 opencode--skip-files-finished-editing-hook-on-next-idle
       (setq opencode--skip-files-finished-editing-hook-on-next-idle nil))))
 
+;; Markdown's parsers use `line-beginning-position', which comint's output/input
+;; fields truncate: a fence line ending at the process mark then fails to
+;; match and signals, aborting event handlers mid-stream.
+(defun opencode--markdown-syntax-propertize (start end)
+  "Run `markdown-syntax-propertize' from START to END ignoring fields."
+  (let ((inhibit-field-text-motion t))
+    (markdown-syntax-propertize start end)))
+
+(defun opencode--markdown-fontify-region (start end &optional loudly)
+  "Fontify START to END like `font-lock-default-fontify-region', ignoring fields.
+LOUDLY is passed through."
+  (let ((inhibit-field-text-motion t))
+    (font-lock-default-fontify-region start end loudly)))
+
+;; Markdown stores match data spanning text before a change; a deletion at
+;; `point-max' leaves `syntax-propertize--done' there, so it is never redone.
+(defun opencode--flush-syntax-before-change (beg _end _len)
+  "Re-propertize from before BEG so Markdown's stored match data stays valid."
+  (syntax-ppss-flush-cache (max (point-min) (1- beg))))
+
 (define-derived-mode opencode-session-mode comint-mode "OpenCode"
   "Major mode for interacting with an opencode session."
   (setq-local comint-use-prompt-regexp nil
@@ -373,11 +390,13 @@ alist of (id . model-id) (providerID . provider-id)."
               markdown-table-at-point-p-function #'gfm--table-at-point-p)
   (add-hook 'syntax-propertize-extend-region-functions
             #'markdown-syntax-propertize-extend-region nil t)
+  (add-hook 'after-change-functions #'opencode--flush-syntax-before-change nil t)
   (add-hook 'jit-lock-after-change-extend-region-functions
             #'markdown-font-lock-extend-region-function t t)
   (add-hook 'font-lock-extend-region-functions
             #'markdown-font-lock-extend-region t t)
-  (setq-local syntax-propertize-function #'markdown-syntax-propertize)
+  (setq-local syntax-propertize-function #'opencode--markdown-syntax-propertize
+              font-lock-fontify-region-function #'opencode--markdown-fontify-region)
   (syntax-propertize (point-max)) ;; Propertize before hooks run, etc.
   (setq-local font-lock-defaults
               '(markdown-mode-font-lock-keywords
@@ -880,40 +899,10 @@ Retain one line of context for headers whose delimiter has yet to arrive."
     (let ((ov (make-overlay start (opencode--session-process-position))))
       ;; Override markdown-mode's blockquote `display', which beats `invisible'.
       (overlay-put ov 'display "")
-      (overlay-put ov 'invisible t))
-    (setq opencode-session--prompt
-          (cons (copy-marker start) (copy-marker (opencode--session-process-position)))))
+      (overlay-put ov 'invisible t)))
   (opencode--add-margin (car comint-last-prompt)
                         (cdr comint-last-prompt)
                         'opencode-request-margin-highlight))
-
-(defun opencode-session--call-before-prompt (fn)
-  "Call FN so its output lands before the prompt displayed last, if any.
-Stream events can arrive after the prompt was shown; remove the prompt, call
-FN, then show the prompt again with the pending input and point preserved."
-  (let ((proc (get-buffer-process (current-buffer)))
-        (prompt opencode-session--prompt))
-    (if (not (and proc prompt (= (process-mark proc) (cdr prompt))))
-        (funcall fn)
-      (let ((input (buffer-substring (cdr prompt) (point-max)))
-            (offset (- (point) (cdr prompt)))
-            (pt (copy-marker (point)))
-            (start (marker-position (car prompt))))
-        (let ((inhibit-read-only t))
-          (remove-overlays start (point-max))
-          (delete-region start (point-max)))
-        (set-marker (process-mark proc) start)
-        (setq opencode-session--prompt nil)
-        (unwind-protect
-            (funcall fn)
-          (unless (= start (process-mark proc))
-            (opencode--maybe-insert-block-spacing))
-          (opencode--show-prompt)
-          (save-excursion
-            (goto-char (point-max))
-            (insert input))
-          (goto-char (if (>= offset 0) (+ (process-mark proc) offset) pt))
-          (set-marker pt nil))))))
 
 (defun opencode-session--stream-delta (session-id kind key delta)
   "Stream DELTA text of KIND (\\='text or \\='reasoning) for block KEY.
@@ -1007,13 +996,6 @@ TYPE is the event's dotted symbol (e.g. \\='session.text.delta); DATA is its
 alist payload.  Handles everything not already intercepted by opencode.el's
 dispatch: streaming text/reasoning/tool rendering, usage updates, and
 files-edited tracking."
-  (let-alist data
-    (opencode--with-session-buffer .sessionID
-      (opencode-session--call-before-prompt
-       (lambda () (opencode-session--dispatch-event type data))))))
-
-(defun opencode-session--dispatch-event (type data)
-  "Render streaming session event TYPE with DATA."
   (let-alist data
     (pcase type
       ('session.text.delta

@@ -110,6 +110,20 @@ for session \"session\" and assistant message \"message\" render here."
       (search-forward "> ")
       (should (get-char-property (- (point) 2) 'invisible)))))
 
+(ert-deftest opencode-session-input-deletion-at-end-test ()
+  "Deleting at `point-max' in the prompt must not leave stale blockquote data."
+  (with-opencode-session-test-buffer
+    (font-lock-mode 1)
+    (opencode--output "Some output\n\n")
+    (opencode--show-prompt)
+    (goto-char (point-max))
+    (insert "see `foo`")
+    (font-lock-ensure)
+    (delete-char -1)
+    (font-lock-ensure)
+    (should (equal "see `foo" (buffer-substring-no-properties
+                               (process-mark process) (point-max))))))
+
 (ert-deftest opencode-session-diff-refinement-test ()
   "Refine entire synthetic hunks without touching input or earlier output."
   (with-opencode-session-test-buffer
@@ -253,30 +267,17 @@ for session \"session\" and assistant message \"message\" render here."
     (should (seq-some (lambda (ov) (overlay-get ov 'line-prefix))
                       (overlays-at (+ (point-min) 9))))))
 
-(ert-deftest opencode-session-late-event-before-prompt-test ()
-  "Events arriving after the prompt is shown render before it, keeping input."
+(ert-deftest opencode-session-fence-at-process-mark-test ()
+  "Parsing Markdown must not fail when output ends on a code fence line."
   (with-opencode-session-test-buffer
-    (opencode--output "answer\n\n")
-    (opencode--show-prompt)
+    (font-lock-mode 1)
+    (opencode--output "hi\n\n```text")
+    (syntax-propertize (point-max))
+    (font-lock-ensure)
+    (opencode--output "\ncode\n```")
     (insert "pending")
-    (backward-char 2)
-    (opencode-session--handle-event
-     'session.usage.updated
-     '((sessionID . "session")
-       (tokens . ((input . 1) (output . 0) (reasoning . 0)
-                  (cache . ((read . 0) (write . 0)))))))
-    (should (equal (buffer-substring-no-properties (point-min) (point-max))
-                   "answer\n\n> pending"))
-    (opencode-session--handle-event
-     'session.reasoning.ended
-     '((sessionID . "session") (assistantMessageID . "message") (ordinal . 0)
-       (text . "late thought")))
-    (should (equal (buffer-substring-no-properties (point-min) (point-max))
-                   "answer\n\nlate thought\n\n> pending"))
-    (should (equal (buffer-substring-no-properties
-                    (process-mark process) (point-max))
-                   "pending"))
-    (should (= (point) (- (point-max) 2)))))
+    (syntax-propertize (point-max))
+    (font-lock-ensure)))
 
 (ert-deftest opencode-session-table-alignment-context-test ()
   "Table alignment must not disturb the session buffer's comint keymap."

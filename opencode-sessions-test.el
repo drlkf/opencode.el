@@ -147,6 +147,17 @@ for session \"session\" and assistant message \"message\" render here."
     (search-forward "ls\n````\n")
     (should-not (markdown-code-block-at-pos (1- (point-max))))))
 
+(ert-deftest opencode-session-tool-output-fence-test ()
+  "A tool output fence ending at the process mark must not signal."
+  (with-opencode-session-test-buffer
+    (font-lock-mode 1)
+    (opencode--maybe-insert-tool-output
+     "shell" '((status . "completed") (input . ((command . "ls")))
+               (content . [((type . "text") (text . "a\n\nb"))])))
+    (opencode--show-prompt)
+    (should (equal "> " (buffer-substring-no-properties
+                         (- (point-max) 2) (point-max))))))
+
 (ert-deftest opencode-session-unclosed-fence-before-tool-test ()
   "Fences left open by reasoning must not swallow the following tool call."
   (with-opencode-session-test-buffer

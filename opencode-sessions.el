@@ -371,6 +371,11 @@ LOUDLY is passed through."
   (let ((inhibit-field-text-motion t))
     (font-lock-default-fontify-region start end loudly)))
 
+(defun opencode--markdown-font-lock-extend-region-function (start end len)
+  "Run `markdown-font-lock-extend-region-function' on START END LEN ignoring fields."
+  (let ((inhibit-field-text-motion t))
+    (markdown-font-lock-extend-region-function start end len)))
+
 ;; Markdown stores match data spanning text before a change; a deletion at
 ;; `point-max' leaves `syntax-propertize--done' there, so it is never redone.
 (defun opencode--flush-syntax-before-change (beg _end _len)
@@ -392,7 +397,7 @@ LOUDLY is passed through."
             #'markdown-syntax-propertize-extend-region nil t)
   (add-hook 'after-change-functions #'opencode--flush-syntax-before-change nil t)
   (add-hook 'jit-lock-after-change-extend-region-functions
-            #'markdown-font-lock-extend-region-function t t)
+            #'opencode--markdown-font-lock-extend-region-function t t)
   (add-hook 'font-lock-extend-region-functions
             #'markdown-font-lock-extend-region t t)
   (setq-local syntax-propertize-function #'opencode--markdown-syntax-propertize

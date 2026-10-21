@@ -124,6 +124,29 @@ for session \"session\" and assistant message \"message\" render here."
     (should (equal "see `foo" (buffer-substring-no-properties
                                (process-mark process) (point-max))))))
 
+(ert-deftest opencode-session-unclosed-fence-test ()
+  "Fences left open by a block must not turn later output or input into code."
+  (with-opencode-session-test-buffer
+    (font-lock-mode 1)
+    (opencode-session--handle-event
+     'session.reasoning.delta
+     '((sessionID . "session") (assistantMessageID . "message") (ordinal . 0)
+       (delta . "think\n```elisp\n(foo")))
+    (opencode-session--handle-event
+     'session.text.delta
+     '((sessionID . "session") (assistantMessageID . "message") (ordinal . 1)
+       (delta . "answer\n\n````sh\nls")))
+    (opencode--show-prompt)
+    (insert "pending")
+    (font-lock-ensure)
+    (should (equal "pending" (buffer-substring-no-properties
+                              (process-mark process) (point-max))))
+    (goto-char (point-min))
+    (search-forward "answer")
+    (should-not (markdown-code-block-at-pos (1- (point))))
+    (search-forward "ls\n````\n")
+    (should-not (markdown-code-block-at-pos (1- (point-max))))))
+
 (ert-deftest opencode-session-diff-refinement-test ()
   "Refine entire synthetic hunks without touching input or earlier output."
   (with-opencode-session-test-buffer

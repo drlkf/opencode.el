@@ -768,8 +768,28 @@ Preserve any pending input context while sending STRING as a plain prompt."
       (set-marker pending-prompt nil)
       (set-marker original-point nil))))
 
+(defun opencode--close-open-fence ()
+  "Close a code fence left open by output before the process mark.
+Otherwise Markdown fontifies following blocks and prompt input as code."
+  (let ((open (save-excursion
+                (save-restriction
+                  (narrow-to-region (point-min) (opencode--session-process-position))
+                  (let ((inhibit-field-text-motion t))
+                    (syntax-propertize (point-max))
+                    (goto-char (point-max))
+                    (when-let ((block (markdown-find-previous-block)))
+                      (goto-char (car block))
+                      (beginning-of-line)
+                      (when (looking-at "[[:blank:]]*\\([`~]\\{3,\\}\\)")
+                        (match-string-no-properties 1))))))))
+    (when open
+      (opencode--output
+       (concat (unless (eq ?\n (char-before (opencode--session-process-position))) "\n")
+               open "\n")))))
+
 (defun opencode--maybe-insert-block-spacing ()
   "Ensure \n\n before block."
+  (opencode--close-open-fence)
   (let ((pos (opencode--session-process-position)))
     (opencode--output
      (cond
@@ -894,6 +914,7 @@ Retain one line of context for headers whose delimiter has yet to arrive."
 
 (defun opencode--show-prompt ()
   "Highlight the prompt after displaying output."
+  (opencode--close-open-fence)
   (let ((start (opencode--session-process-position)))
     (opencode--output "> ")
     (let ((ov (make-overlay start (opencode--session-process-position))))
@@ -1197,12 +1218,14 @@ STATE is a Session.Message.ToolState.* alist (status, input, content, ...)."
                        (copy-marker (opencode--session-process-position)))
                  (opencode--output text)
                  (opencode--align-finished-tables t)
+                 (opencode--close-open-fence)
                  (opencode--output "\n\n")
                  (setq last-type "text"))))
             ("reasoning"
              (let ((text (string-trim (or .text ""))))
                (unless (string-empty-p text)
                  (opencode--insert-reasoning-block text)
+                 (opencode--close-open-fence)
                  (opencode--output "\n\n")
                  (setq last-type "reasoning"))))))))))
 

@@ -30,8 +30,8 @@ arguments and should return a string.
   "Register a formatter for TOOL-NAME.
 
 BODY is evaluated inside `(let-alist tool-args ...)'."
-  (declare (indent 2)
-           (debug (form symbolp body)))
+  (declare (indent 1)
+           (debug (form body)))
   (cl-with-gensyms (input-var)
     `(setf (alist-get ,tool-name opencode-tool-formatters nil nil #'equal)
            (lambda (,input-var)
@@ -39,7 +39,7 @@ BODY is evaluated inside `(let-alist tool-args ...)'."
                ,@body)))))
 
 (opencode-define-tool-formatter "edit"
-    (concat "edit " .path ":\n"
+    (concat "edit " .filePath ":\n"
             (opencode--fenced-block
              (opencode--format-edit-diff .oldString .newString) "diff")))
 
@@ -49,13 +49,13 @@ BODY is evaluated inside `(let-alist tool-args ...)'."
              (opencode--format-apply-patch .patchText) "diff")))
 
 (opencode-define-tool-formatter "write"
-    (format "write %s" .path))
+    (format "write %s" .filePath))
 
 (opencode-define-tool-formatter "read"
     (if (and .offset .limit)
         (format "read `%s:%d` limit=%d"
-                .path .offset .limit)
-      (format "read %s" .path)))
+                .filePath .offset .limit)
+      (format "read %s" .filePath)))
 
 (opencode-define-tool-formatter "grep"
     (concat
@@ -63,7 +63,7 @@ BODY is evaluated inside `(let-alist tool-args ...)'."
      (when (or .include .path)
        (format " in %s" (or .include .path)))))
 
-(opencode-define-tool-formatter "shell"
+(opencode-define-tool-formatter "bash"
     (concat (when .description
               (format "# %s\n" .description))
             (format "$ %s" .command)))

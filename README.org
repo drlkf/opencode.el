@@ -46,6 +46,8 @@ of advantages over the official TUI:
    - add any emacs buffer to chat context with =opencode-add-buffer-dwim=
    - add files from dired to context with =opencode-add-file-dwim=
    - add selected region to context with =opencode-add-region=
+   - start a new session to fix all flycheck errors in the current buffer with
+     =opencode-fix-flycheck=
    - integration with magit is possible, =opencode-new-worktree= will create a new
      git branch and worktree for the current project, and start an opencode session in it
    - =`file`= and file:line references in LLM output are turned into clickable buttons
@@ -113,21 +115,21 @@ Here you see a table view with information on all sessions for a given project.
 
 Shortcuts to act on the session at point:
 
-|   Key    | Description                                                                                 |
-|----------+---------------------------------------------------------------------------------------------|
-|   <c>    |                                                                                             |
-|    =x=     | kill session                                                                                |
-|    =R=     | rename session                                                                              |
-| =RET= or =o= | open the session                                                                            |
+|     Key      | Description      |
+|--------------+------------------|
+|     <c>      |                  |
+|     =x=      | kill session     |
+|     =R=      | rename session   |
+| =RET= or =o= | open the session |
 
 Buffer-wide shortcuts:
 
 | Key | Description                                        |
 |-----+----------------------------------------------------|
 | <c> |                                                    |
-|  =n=  | new session                                        |
-|  =M=  | toggle MCP - fuzzy completes on all available MCPs |
-|  =v=  | toggle verbose - whether to show subagent sessions |
+| =n= | new session                                        |
+| =M= | toggle MCP - fuzzy completes on all available MCPs |
+| =v= | toggle verbose - whether to show subagent sessions |
 
 * Chat Sessions
 [[file:screenshots/session.png]]
@@ -140,52 +142,53 @@ indicator for if the session is idle or busy. User prompts are shown with a blue
 margin highlight, information about tool calls in green, and reasoning in brown.
 These colors can be configured through the =opencode-*-margin-highlight= faces.
 
-|      Key       | Description                                                                                                                                                                                                     |
-|----------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-|      <c>       |                                                                                                                                                                                                                 |
-|    =C-c C-y=     | yank code block at point                                                                                                                                                                                        |
-|     =C-c Y=      | Copy the full conversation as a Markdown transcript, including reasoning and tool outputs. @@html:<br>@@ Useful to gather context in OpenCode, and then iterate on a plan in webchat if webchat has separate usage limits.   |
-|    =C-c C-c=     | cancel the current request                                                                                                                                                                                      |
-|    =C-c C-p=     | respond to a permission request                                                                                                                                                                                 |
-|     =C-c x=      | delete this session                                                                                                                                                                                             |
-|      =TAB=       | cycle through available primary agents                                                                                                                                                                          |
-|     =C-c r=      | rename this session                                                                                                                                                                                             |
-|     =C-c n=      | start a new session in the same project                                                                                                                                                                         |
-|     =C-c l=      | list and select from all sessions in the same project                                                                                                                                                           |
-|     =C-c c=      | fuzzy select a child session to open - children are all subagent  sessions spawned by this session                                                                                                              |
-|     =C-c C=      | compact session                                                                                                                                                                                                 |
-|     =C-c t=      | scroll to the top of the text part of the last assistant response                                                                                                                                               |
-|     =C-c p=      | open parent session - when in a subagent session, open the session that spawned it                                                                                                                              |
-|     =C-c f=      | select a file to add to context, if called with a prefix argument then select a directory                                                                                                                       |
-|     =C-c b=      | select a buffer to add to context                                                                                                                                                                               |
-| =M-x yank-media= | add an image from clipboard to context                                                                                                                                                                          |
-|     =C-c m=      | select model                                                                                                                                                                                                    |
-|     =C-c v=      | select model variant                                                                                                                                                                                            |
-|     =C-c M=      | select an MCP to toggle                                                                                                                                                                                         |
-|     =C-c F=      | fork session from message at point - use this when a model responds badly to avoid polluting context with the bad response                                                                                      |
-|     =C-c R=      | revert all edits done by this session after the message at point                                                                                                                                                |
-|       =/=        | when at the start of a user prompt, select a slash command to run                                                                                                                                               |
-|       =@=        | reference a sub-agent                                                                                                                                                                                           |
+|       Key        | Description                                                                                                                                                                                                                |
+|------------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+|       <c>        |                                                                                                                                                                                                                            |
+|    =C-c C-y=     | yank code block at point                                                                                                                                                                                                   |
+|     =C-c Y=      | Copy the full conversation as a Markdown transcript, including reasoning and tool outputs. @@html:<br>@@ Useful to gather context in OpenCode, and then iterate on a plan in webchat if webchat has separate usage limits. |
+|    =C-c C-c=     | cancel the current request                                                                                                                                                                                                 |
+|    =C-c C-p=     | respond to a permission request                                                                                                                                                                                            |
+|     =C-c x=      | delete this session                                                                                                                                                                                                        |
+|      =TAB=       | cycle through available primary agents                                                                                                                                                                                     |
+|     =C-c r=      | rename this session                                                                                                                                                                                                        |
+|     =C-c n=      | start a new session in the same project                                                                                                                                                                                    |
+|     =C-c l=      | list and select from all sessions in the same project                                                                                                                                                                      |
+|     =C-c c=      | fuzzy select a child session to open - children are all subagent  sessions spawned by this session                                                                                                                         |
+|     =C-c C=      | compact session                                                                                                                                                                                                            |
+|     =C-c t=      | scroll to the top of the text part of the last assistant response                                                                                                                                                          |
+|     =C-c p=      | open parent session - when in a subagent session, open the session that spawned it                                                                                                                                         |
+|     =C-c f=      | select a file to add to context, if called with a prefix argument then select a directory                                                                                                                                  |
+|     =C-c b=      | select a buffer to add to context                                                                                                                                                                                          |
+| =M-x yank-media= | add an image from clipboard to context                                                                                                                                                                                     |
+|     =C-c m=      | select model                                                                                                                                                                                                               |
+|     =C-c v=      | select model variant                                                                                                                                                                                                       |
+|     =C-c M=      | select an MCP to toggle                                                                                                                                                                                                    |
+|     =C-c F=      | fork session from message at point - use this when a model responds badly to avoid polluting context with the bad response                                                                                                 |
+|     =C-c R=      | revert all edits done by this session after the message at point                                                                                                                                                           |
+|       =/=        | when at the start of a user prompt, select a slash command to run                                                                                                                                                          |
+|       =@=        | reference a sub-agent                                                                                                                                                                                                      |
 
 * Notifications
 If a session buffer and frame is not active, emacs will show a notification when that session's response has finished, so that you can go work on other stuff and be notified when the agent has finished.
 
 * Commands
 #+begin_src emacs-lisp :results table :colnames '("Command" "Description") :exports results
-  (cl-loop for command in '(opencode opencode-connect opencode-disconnect
-                                     opencode-select-project opencode-select-open-session
-                                     opencode-new-worktree opencode-new-session
-                                     opencode-select-idle opencode-visit-last-idle
-                                     opencode-add-file-dwim opencode-add-region opencode-add-buffer-dwim)
-           collect (list command
-                         (string-join (string-lines (documentation command)) " ")))
+(cl-loop for command in '(opencode opencode-connect opencode-disconnect
+                          opencode-select-project opencode-select-open-session
+                          opencode-new-worktree opencode-new-session
+                          opencode-select-idle opencode-visit-last-idle
+                          opencode-add-file-dwim opencode-add-region opencode-add-buffer-dwim
+                          opencode-fix-flycheck)
+         collect (list command
+                       (string-join (string-lines (documentation command)) " ")))
 #+end_src
 
 #+RESULTS:
 | Command                      | Description                                                                                                                                                                                                                                          |
 |------------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| opencode                     | Open opencode sessions control buffer for the current project directory. Connects to the shared opencode background service, starting it if necessary.                                                    |
-| opencode-connect             | Connect to the shared opencode background service. Starts it via ‘opencode-command’ if it isn't already running. Runs ON-CONNECT once connected, if given.                                                                                                                                                                                             |
+| opencode                     | Open opencode sessions control buffer for the current project directory. Connects to the shared opencode background service, starting it if necessary.                                                                                               |
+| opencode-connect             | Connect to the shared opencode background service. Starts it via ‘opencode-command’ if it isn't already running. Runs ON-CONNECT once connected, if given.                                                                                           |
 | opencode-disconnect          | Disconnect from opencode server, optionally log EVENT.                                                                                                                                                                                               |
 | opencode-select-project      | Completing read to prompt which project to select.                                                                                                                                                                                                   |
 | opencode-select-open-session | Select among open session buffers.                                                                                                                                                                                                                   |
@@ -196,6 +199,7 @@ If a session buffer and frame is not active, emacs will show a notification when
 | opencode-add-file-dwim       | If in Dired, add all marked files, or file at point if none marked. Otherwise add the current buffer’s file. Otherwise prompt for file in current project.                                                                                           |
 | opencode-add-region          | Add the active region to context.                                                                                                                                                                                                                    |
 | opencode-add-buffer-dwim     | Add current buffer or prompt for one to add.                                                                                                                                                                                                         |
+| opencode-fix-flycheck        | Start a new opencode session to fix the current buffer’s Flycheck errors.                                                                                                                                                                            |
 
 * Question Tool
 #+CAPTION: Single choice question

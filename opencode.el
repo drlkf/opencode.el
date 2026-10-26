@@ -563,26 +563,23 @@ If INITIAL-PROMPT is given, it is sent after CALLBACK is called."
   "Completing read to select an MCP to toggle."
   (interactive)
   (opencode-api-mcps mcps
-    (let* ((mcp (opencode--annotated-completion
-                 "MCP: "
-                 (cl-loop for server in mcps
-                          for name = (alist-get 'name server)
-                          for status = (map-nested-elt server '(status status))
-                          collect (list name name
-                                        (pcase status
-                                          ("connected" "🟢 connected")
-                                          ("disabled" "🔴 disabled")
-                                          (_ status))))))
-           (status (map-nested-elt
-                    (seq-find (lambda (server) (equal (alist-get 'name server) mcp)) mcps)
-                    '(status status))))
-      (if (equal status "connected")
-          (opencode-api-disconnect-mcp (mcp)
-              _res
-            (message "Disconnected %s" mcp))
-        (opencode-api-connect-mcp (mcp)
-            _res
-          (message "Connected %s" mcp))))))
+    (let ((mcp (opencode--annotated-completion
+                "MCP: "
+                (cl-loop for mcp in mcps
+                         for (mcp-name . mcp-info) = mcp
+                         collect (list (symbol-name mcp-name)
+                                       mcp-name
+                                       (pcase (alist-get 'status mcp-info)
+                                         ("connected" "🟢 connected")
+                                         ("disabled"  "⚪ disabled")
+                                         ("failed"    "🔴 failed")))))))
+      (pcase (map-nested-elt mcps `(,mcp status))
+        ("connected" (opencode-api-disable-mcp (mcp)
+                                               _res
+                                               (message "Disabled %s" mcp)))
+        ("disabled" (opencode-api-enable-mcp (mcp)
+                                             _res
+                                             (message "Enabled %s" mcp)))))))
 
 (defun opencode-fork-session ()
   "Fork the current session from the message at point.
